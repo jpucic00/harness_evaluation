@@ -5,6 +5,9 @@ __pycache__/
 .mypy_cache/
 .ruff_cache/
 logs/
-reports/
+reports/*
+# Reference results kept in git: successful full runs (all suites, real models, no errors).
+!reports/qwen-docker-full-1/
+!reports/claude-opencode-qwen-full-2/
 .agenteval/
 .env
