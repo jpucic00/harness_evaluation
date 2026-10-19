@@ -1,0 +1,32 @@
+diff --git a/wordfreq.py b/wordfreq.py
+index 6e9ae72..a80b900 100644
+--- a/wordfreq.py
++++ b/wordfreq.py
+@@ -1,5 +1,7 @@
+ """Word statistics for short texts."""
+ 
++import string
++
+ 
+ def word_counts(text: str) -> dict[str, int]:
+     """Count how often each word occurs.
+@@ -10,8 +12,10 @@ def word_counts(text: str) -> dict[str, int]:
+     "well-known"). Any whitespace separates words.
+     """
+     counts: dict[str, int] = {}
+-    for word in text.split(" "):
+-        counts[word] = counts.get(word, 0) + 1
++    for token in text.split():
++        word = token.strip(string.punctuation).lower()
++        if word:
++            counts[word] = counts.get(word, 0) + 1
+     return counts
+ 
+ 
+@@ -22,5 +26,5 @@ def top_words(text: str, n: int) -> list[tuple[str, int]]:
+     alphabetically.
+     """
+     counts = word_counts(text)
+-    ranked = sorted(counts.items(), key=lambda item: item[1], reverse=True)
++    ranked = sorted(counts.items(), key=lambda item: (-item[1], item[0]))
+     return ranked[:n]

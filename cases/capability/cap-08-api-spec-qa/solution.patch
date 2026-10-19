@@ -1,0 +1,33 @@
+diff --git a/answers.json b/answers.json
+index 83b89af..4482870 100644
+--- a/answers.json
++++ b/answers.json
+@@ -1,15 +1,15 @@
+ {
+-  "q1": null,
+-  "q2": null,
+-  "q3": null,
+-  "q4": null,
+-  "q5": null,
+-  "q6": null,
+-  "q7": null,
+-  "q8": null,
+-  "q9": null,
+-  "q10": null,
+-  "q11": null,
+-  "q12": null,
+-  "q13": null
++  "q1": 201,
++  "q2": 409,
++  "q3": ["sku", "quantity", "warehouse_id"],
++  "q4": 200,
++  "q5": ["cursor", "limit", "warehouse_id", "updated_since"],
++  "q6": "reservations:cancel",
++  "q7": "Idempotency-Key",
++  "q8": 422,
++  "q9": 15,
++  "q10": ["active", "fulfilled", "cancelled", "expired"],
++  "q11": "GET /items/{sku}/stock",
++  "q12": 600,
++  "q13": "https://api.example.internal/inventory/v2"
+ }

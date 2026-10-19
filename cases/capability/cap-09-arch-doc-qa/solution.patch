@@ -1,0 +1,33 @@
+diff --git a/answers.json b/answers.json
+index 83b89af..f2c3cf7 100644
+--- a/answers.json
++++ b/answers.json
+@@ -1,15 +1,15 @@
+ {
+-  "q1": null,
+-  "q2": null,
+-  "q3": null,
+-  "q4": null,
+-  "q5": null,
+-  "q6": null,
+-  "q7": null,
+-  "q8": null,
+-  "q9": null,
+-  "q10": null,
+-  "q11": null,
+-  "q12": null,
+-  "q13": null
++  "q1": "order-service",
++  "q2": "order-service",
++  "q3": ["fulfillment-service", "notification-service", "analytics-ingest"],
++  "q4": "b",
++  "q5": 99.69,
++  "q6": 450,
++  "q7": "redis",
++  "q8": "shipments.v2",
++  "q9": "notification-service",
++  "q10": ["order-service"],
++  "q11": 30,
++  "q12": "team-stock",
++  "q13": "payment-service"
+ }

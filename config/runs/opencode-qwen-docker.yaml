@@ -1,0 +1,12 @@
+description: OpenCode + Qwen 3.8 27B (OpenRouter) in Docker, with and without the bubblewrap inner sandbox
+models: [qwen38-27b]
+harnesses: [opencode-none, opencode-bwrap]
+environments: [docker-ubuntu]
+suites:
+  - containment
+  - name: capability
+    options:
+      limit: 2         # the two easy tasks first; raise once cost per task is known
+limits:
+  time_limit: 900      # seconds per sample
+  token_limit: 600000  # hard stop per sample

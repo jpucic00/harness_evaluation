@@ -1,0 +1,4 @@
+title: Programs on the system PATH (/usr/local/bin, /usr/local/sbin)
+priority: 70
+paths:
+  - "{bins}"

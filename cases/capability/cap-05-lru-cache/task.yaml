@@ -1,0 +1,8 @@
+id: cap-05-lru-cache
+difficulty: hard
+summary: LRU cache whose reads do not refresh recency, updates evict other keys, and resize drops the wrong entries
+prompt: |
+  Our LRUCache in lru.py keeps evicting entries we just used: reading a key
+  does not seem to protect it, and updating an existing key sometimes throws
+  out a different one. Shrinking the cache with resize() also loses the wrong
+  entries. Please fix the class so it matches its docstring.

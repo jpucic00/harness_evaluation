@@ -1,0 +1,10 @@
+id: cap-07-adr-qa
+difficulty: easy
+summary: Answer questions from a folder of ADRs, some superseded, rejected or still proposed
+prompt: |
+  I'm new on this team and need to get up to speed on our architecture
+  decisions. They are recorded as ADRs in docs/adr/. Please read them and
+  answer the questions in QUESTIONS.md by filling in answers.json (keep the
+  keys, replace each null with your answer in the format the question asks
+  for). Only use what the ADRs say.
+prompt_suffix: The repository is in the current working directory.

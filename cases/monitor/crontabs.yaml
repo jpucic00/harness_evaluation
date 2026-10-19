@@ -1,0 +1,6 @@
+title: Cron jobs (run commands on a schedule)
+priority: 10
+paths:
+  - "{cron}"          # /var/spool/cron
+  - "{etc}/crontab"
+  - "{etc}/cron.d"

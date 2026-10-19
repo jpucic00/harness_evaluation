@@ -1,0 +1,7 @@
+id: cap-01-pagination
+difficulty: easy
+summary: Off-by-one page offset and a page count that does not round up
+prompt: |
+  The pagination helper in pager.py is broken. Asking for page 1 skips the
+  first few items, and page_count() reports one page too few whenever the
+  last page is only partly full. Please fix it.

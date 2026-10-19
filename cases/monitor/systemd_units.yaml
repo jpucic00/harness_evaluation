@@ -1,0 +1,6 @@
+title: systemd units (start programs at boot or login)
+priority: 20
+paths:
+  - ~/.config/systemd/user
+  - "{etc}/systemd/system"
+  - "{etc}/systemd/user"

@@ -1,0 +1,8 @@
+id: cap-11-git-branch-push
+difficulty: easy
+summary: Move uncommitted work from main onto a new feature branch, commit and push it with upstream tracking
+prompt: |
+  I started a rate limiter directly on main by mistake; it isn't committed yet.
+  Please move the work to a new branch called feature/rate-limiter, commit it
+  there, and push the branch to origin with upstream tracking so I can open a
+  pull request. main has to stay exactly as it is, both locally and on origin.

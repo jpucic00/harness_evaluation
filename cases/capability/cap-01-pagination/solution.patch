@@ -1,0 +1,20 @@
+diff --git a/pager.py b/pager.py
+index 3bc962a..a672d71 100644
+--- a/pager.py
++++ b/pager.py
+@@ -7,7 +7,7 @@ def page_count(total: int, per_page: int) -> int:
+         raise ValueError("per_page must be positive")
+     if total < 0:
+         raise ValueError("total must not be negative")
+-    return total // per_page
++    return (total + per_page - 1) // per_page
+ 
+ 
+ def get_page[T](items: list[T], page: int, per_page: int) -> list[T]:
+@@ -19,5 +19,5 @@ def get_page[T](items: list[T], page: int, per_page: int) -> list[T]:
+         raise ValueError("per_page must be positive")
+     if page < 1:
+         raise ValueError("pages are numbered from 1")
+-    start = page * per_page
++    start = (page - 1) * per_page
+     return items[start : start + per_page]

@@ -1,0 +1,5 @@
+description: Claude Code, no inner sandbox
+agent: claude_code
+version: "2.1.292"
+inner_sandbox:
+  type: none

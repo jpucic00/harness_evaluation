@@ -1,0 +1,19 @@
+# Qwen 3.8 27B via OpenRouter.
+# NOTE: OpenRouter is a third-party service; prompts, code and tool output
+# from every sample are sent to it and to the upstream provider it routes to.
+description: Qwen 3.8 27B on OpenRouter
+inspect_model: openrouter/qwen/qwen3.8-27b
+model_args:
+  # OpenRouter provider routing: only use upstream providers that do not
+  # train on or retain request data.
+  provider:
+    data_collection: deny
+required_env: [OPENROUTER_API_KEY]
+agent_models:
+  # Model id OpenCode itself is configured with. It picks OpenCode's request
+  # format and prompt template; calls still go through the Inspect bridge.
+  opencode: openrouter/qwen/qwen3.8-27b
+pricing:  # USD per 1M tokens, from openrouter.ai/api/v1/models on 2026-10-18
+  input: 0.24
+  output: 2.20
+  input_cache_read: 0.05

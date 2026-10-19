@@ -1,0 +1,14 @@
+# Claude Sonnet 5.5 via Amazon Bedrock (the Claude Code route).
+# Credentials come from the host's standard AWS chain (AWS_PROFILE / SSO / env keys);
+# AWS_REGION picks the Bedrock endpoint.
+# Model id: Sonnet 5.5 is only callable through an inference profile. The global
+# profile below may route to any region; use the "eu." or "us." profile if data
+# must stay in one geography (check the AWS model card's programmatic-access table).
+description: Claude Sonnet 5.5 on Amazon Bedrock
+inspect_model: anthropic/bedrock/global.anthropic.claude-sonnet-5-5
+required_env: [AWS_REGION]
+pricing:  # USD per 1M tokens, assumed equal to Anthropic list price; verify against your Bedrock rate card
+  input: 2.00
+  output: 10.00
+  input_cache_read: 0.20
+  input_cache_write: 2.50

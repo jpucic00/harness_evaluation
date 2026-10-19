@@ -1,0 +1,6 @@
+title: Anything else under /etc
+# Lowest priority: files claimed by a more specific group above (cron, systemd) are
+# reported there, not here.
+priority: 90
+paths:
+  - "{etc}"

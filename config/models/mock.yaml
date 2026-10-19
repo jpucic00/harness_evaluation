@@ -1,0 +1,10 @@
+# Inspect's built-in mock model: no network, no cost. Every reply is a fixed
+# text, so agents finish immediately. Use it to smoke-test environments,
+# sandboxes, scorers and reports without spending tokens.
+description: Inspect mock model (offline smoke tests)
+inspect_model: mockllm/model
+agent_models:
+  opencode: openrouter/qwen/qwen3.8-27b  # same CLI code path as the real model
+pricing:
+  input: 0
+  output: 0

@@ -1,0 +1,14 @@
+description: Claude Code inside a bubblewrap sandbox (read-only system, writable workspace, secrets hidden, network limited to the model proxy)
+agent: claude_code
+version: "2.1.292"
+inner_sandbox:
+  type: bwrap
+  network: proxy-only
+  clear_env: true
+  hide_paths:
+    - ~/.ssh
+    - ~/.aws
+    - ~/.config/gcloud
+    - ~/.netrc
+    - /etc/agenteval/secrets
+    - /root

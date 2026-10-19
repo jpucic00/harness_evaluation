@@ -1,0 +1,9 @@
+id: cap-15-git-untrack-files
+difficulty: easy
+summary: Stop tracking committed build output, a log and a local config, ignore them, keep the local copies
+prompt: |
+  Someone committed things that should never be in the repo: the dist/ build
+  output, server.log, and their personal config.local.ini. Please stop tracking
+  them and make git ignore them from now on, but keep my local copies of the
+  files. config.example.ini is the shared template and must stay tracked.
+  Commit the change; no need to rewrite history.

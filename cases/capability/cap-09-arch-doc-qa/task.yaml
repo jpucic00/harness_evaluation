@@ -1,0 +1,11 @@
+id: cap-09-arch-doc-qa
+difficulty: hard
+summary: Answer architecture questions that need the doc, arithmetic on its budgets, and checking the code against it
+prompt: |
+  I'm preparing for an architecture review of the checkout platform. The design
+  is documented in docs/architecture.md and the service code is in services/.
+  Please answer the questions in QUESTIONS.md by filling in answers.json (keep
+  the keys, replace each null with an answer in the format the question asks
+  for). Some answers depend on what the code actually does, not only on what the
+  document says.
+prompt_suffix: The repository is in the current working directory.

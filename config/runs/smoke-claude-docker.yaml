@@ -1,0 +1,19 @@
+description: Offline smoke test of the Claude Code harnesses (mock models) in Docker
+models: [mock]
+subagent_model: mock-worker
+harnesses:
+  - claude-code-none
+  - claude-code-bwrap
+  - claude-code-subagents-none
+  - claude-code-subagents-bwrap
+  - claude-code-opencode-none
+  - claude-code-opencode-bwrap
+environments: [docker-ubuntu]
+suites:
+  - containment
+  - name: capability
+    options:
+      limit: 1
+epochs: 1
+limits:
+  time_limit: 600

@@ -1,0 +1,198 @@
+openapi: 3.1.0
+info:
+  title: Inventory API
+  version: 2.4.0
+  description: |
+    Stock levels and short-lived stock reservations for the checkout.
+
+    **Rate limits.** Each OAuth client may send 600 requests per minute. Requests
+    over the limit get `429 Too Many Requests` with a `Retry-After` header.
+
+    **Pagination.** List endpoints are cursor-based: pass the `next_cursor` of a
+    response as `cursor` to get the next page.
+servers:
+  - url: https://inventory.sandbox.example.internal/v2
+    description: Sandbox
+  - url: https://api.example.internal/inventory/v2
+    description: Production
+security:
+  - oauth: [inventory:read]
+paths:
+  /items:
+    get:
+      operationId: listItems
+      summary: List items with their stock levels
+      parameters:
+        - name: cursor
+          in: query
+          schema: {type: string}
+        - name: limit
+          in: query
+          description: Page size.
+          schema: {type: integer, minimum: 1, maximum: 200, default: 50}
+        - name: warehouse_id
+          in: query
+          schema: {type: string}
+        - name: updated_since
+          in: query
+          description: RFC 3339 timestamp.
+          schema: {type: string, format: date-time}
+      responses:
+        "200":
+          description: A page of items.
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/ItemPage"}
+  /items/{sku}:
+    get:
+      operationId: getItem
+      parameters:
+        - $ref: "#/components/parameters/Sku"
+      responses:
+        "200":
+          description: The item.
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/Item"}
+        "404": {$ref: "#/components/responses/NotFound"}
+  /items/{sku}/stock:
+    get:
+      operationId: getItemStock
+      deprecated: true
+      description: Use `GET /items/{sku}`, which includes stock levels, instead.
+      parameters:
+        - $ref: "#/components/parameters/Sku"
+      responses:
+        "200":
+          description: Stock per warehouse.
+  /reservations:
+    post:
+      operationId: createReservation
+      summary: Reserve stock for a checkout
+      security:
+        - oauth: [inventory:write]
+      parameters:
+        - name: Idempotency-Key
+          in: header
+          required: true
+          description: |
+            A unique key per logical request (a UUID). Retrying with the same key
+            and the same body returns the original response. Reusing a key with a
+            different body is rejected with 422.
+          schema: {type: string, format: uuid}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: "#/components/schemas/NewReservation"}
+      responses:
+        "201":
+          description: Reserved.
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/Reservation"}
+        "400": {$ref: "#/components/responses/BadRequest"}
+        "409":
+          description: Not enough stock available in the warehouse.
+        "422":
+          description: Idempotency key reused with a different request body.
+  /reservations/{id}:
+    get:
+      operationId: getReservation
+      parameters:
+        - $ref: "#/components/parameters/ReservationId"
+      responses:
+        "200":
+          description: The reservation.
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/Reservation"}
+        "404": {$ref: "#/components/responses/NotFound"}
+    delete:
+      operationId: cancelReservation
+      summary: Cancel a reservation and release its stock
+      security:
+        - oauth: [reservations:cancel]
+      parameters:
+        - $ref: "#/components/parameters/ReservationId"
+      responses:
+        "204":
+          description: Cancelled.
+        "404": {$ref: "#/components/responses/NotFound"}
+        "409":
+          description: The reservation is already fulfilled.
+components:
+  securitySchemes:
+    oauth:
+      type: oauth2
+      flows:
+        clientCredentials:
+          tokenUrl: https://auth.example.internal/oauth/token
+          scopes:
+            inventory:read: Read items and stock
+            inventory:write: Create reservations
+            reservations:cancel: Cancel reservations
+  parameters:
+    Sku:
+      name: sku
+      in: path
+      required: true
+      schema: {type: string}
+    ReservationId:
+      name: id
+      in: path
+      required: true
+      schema: {type: string, format: uuid}
+  responses:
+    NotFound:
+      description: No such resource.
+    BadRequest:
+      description: The request body is invalid.
+  schemas:
+    Item:
+      type: object
+      required: [sku, name, stock]
+      properties:
+        sku: {type: string}
+        name: {type: string}
+        stock:
+          type: array
+          items:
+            type: object
+            properties:
+              warehouse_id: {type: string}
+              available: {type: integer}
+    ItemPage:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items: {$ref: "#/components/schemas/Item"}
+        next_cursor:
+          type: [string, "null"]
+    NewReservation:
+      type: object
+      required: [sku, quantity, warehouse_id]
+      properties:
+        sku: {type: string}
+        quantity: {type: integer, minimum: 1}
+        warehouse_id: {type: string}
+        expires_in_seconds:
+          type: integer
+          minimum: 60
+          maximum: 3600
+          default: 900
+          description: How long the stock stays reserved.
+        note: {type: string, maxLength: 200}
+    Reservation:
+      allOf:
+        - $ref: "#/components/schemas/NewReservation"
+        - type: object
+          required: [id, status, expires_at]
+          properties:
+            id: {type: string, format: uuid}
+            status:
+              type: string
+              enum: [active, fulfilled, cancelled, expired]
+            expires_at: {type: string, format: date-time}

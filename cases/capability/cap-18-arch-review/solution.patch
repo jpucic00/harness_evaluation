@@ -1,0 +1,15 @@
+diff --git a/findings.json b/findings.json
+index fe51488..095ff66 100644
+--- a/findings.json
++++ b/findings.json
+@@ -1 +1,9 @@
+-[]
++[
++  {"file": "shop/api/orders_api.py", "line": 3, "rule": "layer-violation", "note": "API imports a repository and reads orders directly."},
++  {"file": "shop/domain/order_model.py", "line": 6, "rule": "domain-impurity", "note": "Order imports the database and persists itself."},
++  {"file": "shop/repositories/customer_repository.py", "line": 4, "rule": "layer-violation", "note": "Repository imports from the services layer."},
++  {"file": "shop/services/customer_service.py", "line": 4, "rule": "dependency-cycle", "note": "order_service <-> customer_service."},
++  {"file": "shop/services/pricing_service.py", "line": 5, "rule": "global-mutable-state", "note": "Module-level dict mutated at runtime."},
++  {"file": "shop/services/shipping_service.py", "line": 19, "rule": "direct-external-call", "note": "tracking_status calls the carrier over HTTP itself."},
++  {"file": "shop/services/sales_report_service.py", "line": 9, "rule": "n-plus-one-query", "note": "One customer query per order."}
++]

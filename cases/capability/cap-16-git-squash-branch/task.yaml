@@ -1,0 +1,9 @@
+id: cap-16-git-squash-branch
+difficulty: easy
+summary: Squash a feature branch's WIP commits into one commit with a given message, keeping the code identical
+prompt: |
+  Before I open a PR, please squash all the commits on my branch
+  feature/csv-export (everything since it branched off main) into a single
+  commit with the message "feat: add CSV export". The code must end up exactly
+  as it is now. The branch was never pushed, so rewriting it is fine; don't touch
+  main.

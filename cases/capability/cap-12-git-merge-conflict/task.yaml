@@ -1,0 +1,12 @@
+id: cap-12-git-merge-conflict
+difficulty: medium
+summary: Merge main into a feature branch and resolve conflicts so both sides' behaviour survives
+prompt: |
+  I'm on feature/bulk-discount. Meanwhile main got the VAT change, and my branch
+  now conflicts with it. Please merge main into my branch and resolve the
+  conflicts so that both the bulk discount and the VAT change work (read the
+  docstrings for how they combine). Commit the merge; the tests from both
+  branches should pass. Don't rebase, and don't change main.
+prompt_suffix: |
+  The repository is in the current working directory. You can run its tests with
+  `python3 -m pytest -q`.

@@ -1,0 +1,11 @@
+id: cap-17-a11y-review-react
+difficulty: medium
+summary: WCAG review of React components with planted violations, decoys that are correct, graded on recall and false positives
+prompt: |
+  Please do an accessibility review of our storefront UI before the WCAG 2.1 AA
+  audit: the React components in src/components/, src/styles.css and
+  public/index.html. Follow REVIEW.md: record every violation you find in
+  findings.json, one entry per problem, with the file, the line and a rule id
+  from the list in REVIEW.md. Don't change the code itself, and don't report
+  things that are fine.
+prompt_suffix: The project is in the current working directory. It has no build or tests; review the source.

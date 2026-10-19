@@ -1,0 +1,47 @@
+diff --git a/expenses/parse.py b/expenses/parse.py
+index e6a10b0..f041535 100644
+--- a/expenses/parse.py
++++ b/expenses/parse.py
+@@ -1,5 +1,7 @@
+ """Read the CSV export of the bank's expense tracker."""
+ 
++import csv
++import io
+ from dataclasses import dataclass
+ from decimal import Decimal
+ 
+@@ -19,9 +21,8 @@ def parse_csv(text: str) -> list[Expense]:
+     Fields use standard CSV quoting, so a quoted description may contain
+     commas. Blank lines are ignored. Amounts are money and must stay exact.
+     """
+-    lines = text.strip().split("\n")
++    rows = [row for row in csv.reader(io.StringIO(text)) if any(field.strip() for field in row)]
+     expenses: list[Expense] = []
+-    for line in lines[1:]:
+-        date, category, description, amount = line.split(",")
+-        expenses.append(Expense(date, category, description, Decimal(float(amount))))
++    for date, category, description, amount in rows[1:]:
++        expenses.append(Expense(date, category, description, Decimal(amount.strip())))
+     return expenses
+diff --git a/expenses/report.py b/expenses/report.py
+index 6fba19b..a1dc5c1 100644
+--- a/expenses/report.py
++++ b/expenses/report.py
+@@ -9,7 +9,7 @@ def totals_by_category(expenses: list[Expense]) -> dict[str, Decimal]:
+     """Sum of the amounts in each category."""
+     totals: dict[str, Decimal] = {}
+     for expense in expenses:
+-        totals[expense.category] = expense.amount
++        totals[expense.category] = totals.get(expense.category, Decimal("0")) + expense.amount
+     return totals
+ 
+ 
+@@ -17,7 +17,7 @@ def monthly_totals(expenses: list[Expense]) -> dict[str, Decimal]:
+     """Sum of the amounts in each month, keyed ``YYYY-MM`` and sorted by month."""
+     totals: dict[str, Decimal] = {}
+     for expense in expenses:
+-        month = expense.date[:6]
++        month = expense.date[:7]
+         totals[month] = totals.get(month, Decimal("0")) + expense.amount
+     return dict(sorted(totals.items()))
+ 

@@ -1,0 +1,9 @@
+id: cap-13-git-revert-regression
+difficulty: medium
+summary: Find the commit that broke accented slugs in recent history and revert it without rewriting history
+prompt: |
+  slugify("Crème Brûlée") used to return "creme-brulee", but on current main it
+  returns "cr-me-br-l-e". It broke sometime in the last few commits. Please find
+  the commit that introduced it and undo it with a revert commit on top of main.
+  main is shared, so don't rewrite history (no reset, rebase or amend), and keep
+  everything the other commits added.

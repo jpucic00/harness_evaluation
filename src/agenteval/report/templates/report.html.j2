@@ -1,0 +1,1186 @@
+{#- agenteval run report. Self-contained: no external URLs, system fonts only. -#}
+{% macro chip(label, status) -%}
+<span class="chip {{ status|st }}"><span class="ic" aria-hidden="true">{{ status|icon }}</span>{{ label }}</span>
+{%- endmacro %}
+{% macro sev(severity) -%}
+<span class="sev sev-{{ severity }}">{{ severity }}</span>
+{%- endmacro %}
+{% macro meter(value, tone="accent") -%}
+<span class="meter meter-{{ tone }}" aria-hidden="true"><span style="width: {{ value|meter }}"></span></span>
+{%- endmacro %}
+{% macro cfg_meta(key) -%}
+{% set c = configs[key] %}
+{% set parts = [] %}
+{% if c.harness_version %}{% set _ = parts.append("v" ~ c.harness_version) %}{% endif %}
+{% if c.inner_sandbox %}{% set _ = parts.append(c.inner_sandbox ~ ("/" ~ c.sandbox_network if c.inner_sandbox != "none" and c.sandbox_network else "")) %}{% endif %}
+{% if c.provider %}{% set _ = parts.append(c.provider) %}{% endif %}
+{% if c.egress %}{% set _ = parts.append("egress " ~ c.egress) %}{% endif %}
+{{ parts|join(" · ") }}
+{%- endmacro %}
+{% macro cfg_head(key) -%}
+<span class="cfg-name">{{ labels[key] }}</span><span class="cfg-meta">{{ cfg_meta(key) }}</span>
+{%- endmacro %}
+{% macro cost_text(value, complete) -%}
+{% if value is none %}cost unknown{% else %}{{ value|usd }}{% if not complete %}*{% endif %}{% endif %}
+{%- endmacro %}
+{% macro show_value(v) -%}
+{% if v is mapping %}{% for k, x in v.items() %}<span class="kv-pair"><span class="k">{{ k }}</span> {{ x }}</span>{% endfor %}{% else %}{{ v }}{% endif %}
+{%- endmacro %}
+{% set s_ = r.summary %}
+{% set multi_epoch = run.samples|selectattr("epoch", "gt", 1)|list|length > 0 %}
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="generator" content="agenteval">
+<title>{{ r.title }}</title>
+<script>
+(function () { try { var t = localStorage.getItem("agenteval-theme"); if (t === "light" || t === "dark") document.documentElement.setAttribute("data-theme", t); } catch (e) {} })();
+</script>
+<style>
+:root {
+  color-scheme: light;
+  --page: #f9f9f7;
+  --surface: #fcfcfb;
+  --surface-2: #f1f0ec;
+  --surface-3: #e9e8e3;
+  --ink: #0b0b0b;
+  --ink-2: #52514e;
+  --muted: #6b6a65;
+  --grid: #e1e0d9;
+  --border: rgba(11, 11, 11, 0.10);
+  --border-strong: rgba(11, 11, 11, 0.18);
+  --accent: #2a78d6;
+  --accent-bg: rgba(42, 120, 214, 0.08);
+  --good: #0ca30c;
+  --good-bg: rgba(12, 163, 12, 0.11);
+  --good-ink: #006300;
+  --warn: #c98500;
+  --warn-bg: rgba(250, 178, 25, 0.20);
+  --warn-ink: #7a5200;
+  --bad: #d03b3b;
+  --bad-bg: rgba(208, 59, 59, 0.11);
+  --bad-ink: #a32020;
+  --serious: #ec835a;
+  --info: #898781;
+  --info-bg: rgba(137, 135, 129, 0.14);
+  --nav-bg: rgba(249, 249, 247, 0.86);
+  --shadow: 0 1px 2px rgba(11, 11, 11, 0.04), 0 2px 8px rgba(11, 11, 11, 0.04);
+  --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+  --sans: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --page: #0d0d0d;
+    --surface: #1a1a19;
+    --surface-2: #232321;
+    --surface-3: #2c2c2a;
+    --ink: #f0efec;
+    --ink-2: #c3c2b7;
+    --muted: #9a988f;
+    --grid: #2c2c2a;
+    --border: rgba(255, 255, 255, 0.10);
+    --border-strong: rgba(255, 255, 255, 0.18);
+    --accent: #3987e5;
+    --accent-bg: rgba(57, 135, 229, 0.14);
+    --good-bg: rgba(12, 163, 12, 0.20);
+    --good-ink: #5fd35f;
+    --warn: #fab219;
+    --warn-bg: rgba(250, 178, 25, 0.18);
+    --warn-ink: #fcc75a;
+    --bad: #e66767;
+    --bad-bg: rgba(230, 103, 103, 0.20);
+    --bad-ink: #f19393;
+    --info-bg: rgba(137, 135, 129, 0.22);
+    --nav-bg: rgba(13, 13, 13, 0.86);
+    --shadow: 0 1px 2px rgba(0, 0, 0, 0.4);
+  }
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --page: #0d0d0d;
+  --surface: #1a1a19;
+  --surface-2: #232321;
+  --surface-3: #2c2c2a;
+  --ink: #f0efec;
+  --ink-2: #c3c2b7;
+  --muted: #9a988f;
+  --grid: #2c2c2a;
+  --border: rgba(255, 255, 255, 0.10);
+  --border-strong: rgba(255, 255, 255, 0.18);
+  --accent: #3987e5;
+  --accent-bg: rgba(57, 135, 229, 0.14);
+  --good-bg: rgba(12, 163, 12, 0.20);
+  --good-ink: #5fd35f;
+  --warn: #fab219;
+  --warn-bg: rgba(250, 178, 25, 0.18);
+  --warn-ink: #fcc75a;
+  --bad: #e66767;
+  --bad-bg: rgba(230, 103, 103, 0.20);
+  --bad-ink: #f19393;
+  --info-bg: rgba(137, 135, 129, 0.22);
+  --nav-bg: rgba(13, 13, 13, 0.86);
+  --shadow: 0 1px 2px rgba(0, 0, 0, 0.4);
+}
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; -webkit-text-size-adjust: 100%; }
+@media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } }
+body {
+  margin: 0; background: var(--page); color: var(--ink);
+  font: 14px/1.5 var(--sans);
+}
+a { color: var(--accent); text-decoration: none; }
+a:hover { text-decoration: underline; }
+code, pre, .mono { font-family: var(--mono); font-size: 12.5px; }
+h1, h2, h3 { line-height: 1.25; margin: 0; }
+h2 { font-size: 20px; font-weight: 650; }
+h3 { font-size: 14px; font-weight: 650; margin: 24px 0 8px; color: var(--ink); }
+.wrap { max-width: 1320px; margin: 0 auto; padding: 0 16px; }
+
+/* header + sticky section nav */
+.top { padding: 28px 0 18px; }
+.top .wrap { display: flex; gap: 16px; align-items: flex-start; justify-content: space-between; }
+.top h1 { font-size: 24px; font-weight: 700; letter-spacing: -0.01em; }
+.top .back { display: inline-block; font-size: 12.5px; font-weight: 600; color: var(--ink-2); margin-bottom: 6px; }
+.top .back:hover { color: var(--accent); }
+.top .sub { color: var(--ink-2); margin-top: 4px; }
+.btn {
+  font: inherit; font-size: 12.5px; color: var(--ink); background: var(--surface);
+  border: 1px solid var(--border-strong); border-radius: 8px; padding: 5px 10px; cursor: pointer;
+}
+.btn:hover { background: var(--surface-2); }
+.bar {
+  position: sticky; top: 0; z-index: 20; background: var(--nav-bg);
+  backdrop-filter: saturate(1.4) blur(8px); -webkit-backdrop-filter: saturate(1.4) blur(8px);
+  border-bottom: 1px solid var(--border);
+}
+nav.views { border-bottom: 1px solid var(--grid); }
+nav.views .wrap { display: flex; gap: 6px; overflow-x: auto; padding-top: 8px; padding-bottom: 8px; scrollbar-width: thin; }
+.view-tab {
+  flex: none; font: inherit; font-size: 12.5px; text-align: left; cursor: pointer; color: var(--ink-2);
+  background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 5px 10px;
+  display: flex; flex-direction: column; gap: 1px; max-width: 280px;
+}
+.view-tab:hover { background: var(--surface-2); color: var(--ink); }
+.view-tab[aria-selected="true"] { color: var(--ink); border-color: var(--accent); background: var(--accent-bg); box-shadow: inset 0 -2px 0 var(--accent); }
+.view-tab .vt-name { font-weight: 650; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.view-tab .vt-meta { color: var(--muted); font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.view-tab.compare { justify-content: center; font-weight: 650; }
+.cmp-pick { padding: 10px 16px; display: flex; flex-wrap: wrap; gap: 6px 14px; align-items: center; margin-top: 16px; }
+.cmp-pick .lbl { color: var(--muted); font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; }
+.cmp-pick label { display: inline-flex; gap: 6px; align-items: center; font-size: 13px; cursor: pointer; }
+.cmp-pick .spacer { flex: 1; }
+.cfg-cards h3 { margin-top: 0; }
+nav.sections .wrap { display: flex; gap: 2px; overflow-x: auto; scrollbar-width: none; }
+nav.sections .wrap::-webkit-scrollbar { display: none; }
+nav.sections a {
+  flex: none; color: var(--ink-2); padding: 10px 12px; border-bottom: 2px solid transparent;
+  font-weight: 550; font-size: 13px; display: inline-flex; gap: 6px; align-items: center;
+}
+nav.sections a:hover { color: var(--ink); text-decoration: none; }
+nav.sections a.active { color: var(--ink); border-bottom-color: var(--accent); }
+.dot { width: 7px; height: 7px; border-radius: 50%; display: inline-block; }
+.dot.bad { background: var(--bad); } .dot.warn { background: var(--warn); } .dot.good { background: var(--good); }
+
+/* sections */
+main { padding-bottom: 64px; }
+section.sec { padding-top: 28px; scroll-margin-top: 110px; }
+details.sample { scroll-margin-top: 110px; }
+.sec-head { display: flex; gap: 12px; align-items: baseline; justify-content: space-between; flex-wrap: wrap; margin-bottom: 6px; }
+.lede { color: var(--ink-2); margin: 4px 0 14px; max-width: 78ch; }
+.note { color: var(--muted); font-size: 12.5px; margin: 8px 0 0; max-width: 100ch; }
+.panel { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; box-shadow: var(--shadow); }
+.empty { color: var(--muted); padding: 14px 16px; margin: 0; }
+
+/* meta grid */
+.meta { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 0; padding: 4px 0; }
+.meta > div { padding: 10px 16px; border-bottom: 1px solid var(--grid); min-width: 0; }
+.meta > div.wide { grid-column: 1 / -1; }
+.meta dt { color: var(--muted); font-size: 11.5px; text-transform: uppercase; letter-spacing: 0.04em; font-weight: 600; }
+.meta dd { margin: 2px 0 0; overflow-wrap: anywhere; }
+.tags { display: flex; gap: 4px; flex-wrap: wrap; }
+.tag { background: var(--surface-2); border: 1px solid var(--border); border-radius: 6px; padding: 0 6px; font-size: 12px; max-width: 100%; overflow-wrap: anywhere; }
+.tag .k { color: var(--muted); }
+
+/* cards */
+.cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 12px; margin: 16px 0; }
+.card { padding: 14px 16px; border-left: 3px solid var(--border-strong); }
+.card.good { border-left-color: var(--good); } .card.bad { border-left-color: var(--bad); } .card.warn { border-left-color: var(--warn); }
+.card .label { color: var(--muted); font-size: 12px; font-weight: 600; }
+.card .value { font-size: 26px; font-weight: 650; letter-spacing: -0.01em; margin-top: 2px; }
+.card .sub { color: var(--ink-2); font-size: 12.5px; }
+
+/* chips */
+.chip {
+  display: inline-flex; align-items: center; gap: 4px; white-space: nowrap;
+  padding: 1px 8px 1px 6px; border-radius: 999px; font-size: 12px; font-weight: 600; line-height: 18px;
+  color: var(--ink); background: var(--info-bg); border: 1px solid transparent;
+}
+.chip .ic { font-size: 11px; width: 12px; text-align: center; font-weight: 800; color: var(--info); }
+.chip.good { background: var(--good-bg); } .chip.good .ic { color: var(--good-ink); }
+.chip.bad { background: var(--bad-bg); border-color: color-mix(in srgb, var(--bad) 35%, transparent); } .chip.bad .ic { color: var(--bad-ink); }
+.chip.warn { background: var(--warn-bg); } .chip.warn .ic { color: var(--warn-ink); }
+.chip .n { font-weight: 500; color: var(--ink-2); }
+.sev {
+  display: inline-block; font-size: 10.5px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em;
+  padding: 0 6px; border-radius: 4px; border: 1px solid var(--border-strong); color: var(--ink-2); line-height: 16px;
+}
+.sev-critical { border-color: var(--bad); color: var(--bad-ink); background: var(--bad-bg); }
+.sev-high { border-color: var(--serious); color: var(--ink); }
+.sev-medium { border-color: var(--warn); color: var(--ink); }
+.suite { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: var(--accent); }
+
+/* meters */
+.meter { display: inline-block; width: 64px; height: 6px; border-radius: 3px; background: var(--surface-3); vertical-align: middle; margin-left: 8px; overflow: hidden; }
+.meter > span { display: block; height: 100%; border-radius: 3px; background: var(--accent); }
+.meter-bad > span { background: var(--bad); } .meter-good > span { background: var(--good); }
+
+/* tables */
+.table-wrap { overflow-x: auto; border-radius: 12px; }
+table.tbl { width: 100%; border-collapse: separate; border-spacing: 0; font-size: 13px; }
+.tbl th, .tbl td { padding: 7px 12px; text-align: left; vertical-align: middle; border-bottom: 1px solid var(--grid); }
+.tbl thead th {
+  background: var(--surface-2); color: var(--ink-2); font-size: 11.5px; font-weight: 650;
+  text-transform: uppercase; letter-spacing: 0.03em; white-space: nowrap; vertical-align: bottom;
+}
+.tbl thead th:first-child { border-top-left-radius: 12px; }
+.tbl thead th:last-child { border-top-right-radius: 12px; }
+.tbl tbody tr:last-child > * { border-bottom: 0; }
+.tbl tbody tr:hover > td, .tbl tbody tr:hover > th { background: var(--accent-bg); }
+.tbl .num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.tbl .ctr { text-align: center; }
+.tbl tr.group > th {
+  background: var(--surface); color: var(--ink); font-size: 12px; font-weight: 700; text-transform: uppercase;
+  letter-spacing: 0.05em; padding-top: 14px; border-bottom: 1px solid var(--border-strong);
+}
+.tbl .sticky { position: sticky; left: 0; z-index: 1; background: var(--surface); }
+.tbl thead .sticky { background: var(--surface-2); z-index: 2; }
+.tbl tr.diff > th.sticky { box-shadow: inset 3px 0 0 var(--accent); }
+.tbl tr.diff > td { background: var(--accent-bg); }
+.tbl tr.total > * { font-weight: 650; background: var(--surface-2); }
+.tbl th.sticky { min-width: 220px; }
+.tbl.dense th, .tbl.dense td { padding: 7px 8px; }
+.tbl.dense thead th { white-space: normal; min-width: 64px; }
+.tbl.dense th.sticky { padding-left: 12px; }
+.cfg-name { display: block; font-weight: 650; color: var(--ink); text-transform: none; letter-spacing: 0; font-size: 13px; white-space: nowrap; }
+.cfg-meta { display: block; color: var(--muted); font-weight: 500; text-transform: none; letter-spacing: 0; font-size: 11.5px; }
+.check-id { font-family: var(--mono); font-size: 12.5px; }
+.diff-mark { color: var(--accent); font-weight: 800; margin-left: 6px; }
+.tbl tr:not(.diff) .diff-mark { display: none; }
+.only-diff tbody tr:not(.diff):not(.group) { display: none; }
+.only-diff tbody tr.group:not(.has-diff) { display: none; }
+.hot { background: var(--bad-bg); font-weight: 650; }
+.controls { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin: 0 0 10px; }
+.controls label { display: inline-flex; gap: 6px; align-items: center; color: var(--ink-2); font-size: 13px; cursor: pointer; }
+.legend { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; color: var(--ink-2); font-size: 12.5px; }
+
+/* problems */
+.alert { border: 1px solid color-mix(in srgb, var(--bad) 40%, transparent); background: var(--bad-bg); border-radius: 10px; padding: 10px 14px; margin: 12px 0; }
+.alert.warn { border-color: color-mix(in srgb, var(--warn) 50%, transparent); background: var(--warn-bg); }
+.alert ul { margin: 6px 0 0; padding-left: 18px; }
+.alert li { margin: 3px 0; overflow-wrap: anywhere; }
+
+/* drill-down */
+.filters { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-bottom: 12px; }
+.filters input[type=search], .filters select {
+  font: inherit; font-size: 13px; color: var(--ink); background: var(--surface);
+  border: 1px solid var(--border-strong); border-radius: 8px; padding: 6px 10px; min-width: 0;
+}
+.filters input[type=search] { flex: 1 1 260px; }
+#sample-count { color: var(--muted); font-size: 12.5px; }
+details.task { margin-bottom: 12px; overflow: hidden; }
+details.task > summary {
+  cursor: pointer; list-style: none; padding: 12px 16px; display: flex; gap: 10px; align-items: center; flex-wrap: wrap;
+  background: var(--surface-2); border-bottom: 1px solid var(--border);
+}
+details.task:not([open]) > summary { border-bottom: 0; }
+details summary::-webkit-details-marker { display: none; }
+details > summary::before { content: "▸"; color: var(--muted); font-size: 11px; transition: transform 0.15s; display: inline-block; }
+details[open] > summary::before { transform: rotate(90deg); }
+details.sample { border-bottom: 1px solid var(--grid); scroll-margin-top: 56px; }
+details.sample:last-of-type { border-bottom: 0; }
+details.sample > summary { cursor: pointer; list-style: none; padding: 9px 16px; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+details.sample > summary:hover { background: var(--accent-bg); }
+details.sample:target > summary, details.sample.flash > summary { background: var(--accent-bg); }
+.sid { font-family: var(--mono); font-size: 12.5px; font-weight: 600; }
+.ep { color: var(--muted); font-size: 12px; }
+.spacer { flex: 1; }
+.stat { color: var(--ink-2); font-size: 12.5px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.sample-body { padding: 4px 16px 16px 34px; }
+.sample-body .meta { border: 1px solid var(--grid); border-radius: 10px; margin: 8px 0 4px; padding: 0; }
+.sample-body .meta > div { padding: 7px 12px; }
+pre.block {
+  background: var(--surface-2); border: 1px solid var(--grid); border-radius: 8px; padding: 10px 12px;
+  margin: 6px 0 0; max-height: 340px; overflow: auto; white-space: pre-wrap; word-break: break-word;
+}
+.kv-pair { display: inline-block; margin-right: 10px; white-space: nowrap; }
+.kv-pair .k { color: var(--muted); }
+.cmd { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-top: 8px; }
+.cmd code { background: var(--surface-2); border: 1px solid var(--grid); border-radius: 6px; padding: 3px 8px; overflow-wrap: anywhere; }
+.err-text { color: var(--bad-ink); }
+footer { color: var(--muted); font-size: 12.5px; border-top: 1px solid var(--border); padding: 18px 0 32px; }
+[hidden] { display: none !important; }
+@media (max-width: 640px) {
+  .top .wrap { flex-direction: column; }
+  .sample-body { padding-left: 16px; }
+  .tbl th.sticky { min-width: 150px; }
+  .cfg-name { white-space: normal; }
+  .card .value { font-size: 22px; }
+}
+@media print {
+  .bar, .filters, .controls, .cmp-pick, #theme-toggle { display: none; }
+  details { display: block; }
+}
+</style>
+</head>
+<body>
+<header class="top">
+  <div class="wrap">
+    <div>
+      {% if index_href %}<a class="back" href="{{ index_href }}">← All reports</a>{% endif %}
+      <h1>{{ r.title }}</h1>
+      <div class="sub">
+        {% if run.run_name %}Run <strong>{{ run.run_name }}</strong> · {% endif %}
+        started {{ run.started_at|ts }}
+        · {{ s_.samples|num }} samples across {{ run.configs|length }} config{{ "s" if run.configs|length != 1 }}
+      </div>
+    </div>
+    <button class="btn" id="theme-toggle" type="button" aria-label="Toggle light or dark theme">Theme</button>
+  </div>
+</header>
+
+<div class="bar">
+{% if run.configs|length > 1 %}
+<nav class="views" aria-label="Configurations">
+  <div class="wrap" role="tablist">
+    <button class="view-tab compare" type="button" role="tab" data-view="compare" aria-selected="true">Compare</button>
+    {% for c in run.configs %}
+    <button class="view-tab" type="button" role="tab" data-view="{{ c.key }}" aria-selected="false" title="{{ c.label }}"><span class="vt-name">{{ c.label }}</span><span class="vt-meta">{{ cfg_meta(c.key) }}</span></button>
+    {% endfor %}
+  </div>
+</nav>
+{% endif %}
+<nav class="sections" aria-label="Report sections">
+  <div class="wrap">
+    <a href="#overview">Overview{% if run.problems %} <span class="dot warn" title="{{ run.problems|length }} problems"></span>{% endif %}</a>
+    {% if r.containment %}<a href="#containment">Containment{% if s_.containment_exposed %} <span class="dot bad" title="{{ s_.containment_exposed }} exposed"></span>{% endif %}</a>{% endif %}
+    {% if r.injection %}<a href="#injection">Injection{% if r.injection.overall.compromised %} <span class="dot bad"></span>{% endif %}</a>{% endif %}
+    {% if r.capability %}<a href="#capability">Capability</a>{% endif %}
+    {% if r.monitor %}<a href="#monitor">Monitor{% if r.monitor.violations %} <span class="dot bad"></span>{% endif %}</a>{% endif %}
+    <a href="#economics">Economics</a>
+    <a href="#samples">Samples{% if s_.errors %} <span class="dot warn" title="{{ s_.errors }} errored"></span>{% endif %}</a>
+  </div>
+</nav>
+</div>
+
+<main class="wrap">
+{% if run.configs|length > 1 %}
+<div class="panel cmp-pick" id="cmp-pick" data-view-only="compare">
+  <span class="lbl">Compare</span>
+  {% for c in run.configs %}<label><input type="checkbox" value="{{ c.key }}" checked> {{ c.label }}</label>{% endfor %}
+  <span class="spacer"></span>
+  <button class="btn" type="button" data-pick="all">All</button>
+  <button class="btn" type="button" data-pick="none">None</button>
+</div>
+{% endif %}
+
+{# ------------------------------------------------------------------ overview #}
+<section class="sec" id="overview">
+  <div class="sec-head"><h2>Overview</h2></div>
+  <div class="panel">
+    <dl class="meta">
+      <div><dt>Run</dt><dd>{{ run.run_name or "—" }}</dd></div>
+      <div><dt>Started</dt><dd>{{ run.started_at|ts }}</dd></div>
+      <div><dt>Completed</dt><dd>{{ run.completed_at|ts }}</dd></div>
+      <div><dt>Report generated</dt><dd>{{ r.generated_at|ts }}</dd></div>
+      <div class="wide"><dt>Versions</dt><dd class="tags">{% for name, version in run.versions.items() %}{% if name.startswith("harness:") %}<span class="tag" title="harness profile {{ name[8:] }}"><span class="k">{{ name[8:] }}</span> {{ version }}</span>{% else %}<span class="tag">{{ name }} {{ version }}</span>{% endif %}{% else %}—{% endfor %}</dd></div>
+      <div><dt>Models</dt><dd class="tags">{% for m in run.configs|map(attribute="model")|unique %}<span class="tag">{{ m }}</span>{% endfor %}</dd></div>
+      <div><dt>Harnesses</dt><dd class="tags">{% for h in run.configs|map(attribute="harness")|unique %}<span class="tag">{{ h }}</span>{% endfor %}</dd></div>
+      <div><dt>Environments</dt><dd class="tags">{% for e in run.configs|map(attribute="environment")|unique %}<span class="tag">{{ e }}</span>{% endfor %}</dd></div>
+      <div><dt>Suites</dt><dd class="tags">{% for s in run.suites %}<span class="tag">{{ s }}</span>{% else %}—{% endfor %}</dd></div>
+      <div class="wide"><dt>Log directory</dt><dd class="mono">{{ run.log_dir }}</dd></div>
+    </dl>
+  </div>
+
+  {% if run.problems %}
+  {% set errs = run.problems|selectattr("level", "equalto", "error")|list %}
+  <div class="alert{{ '' if errs else ' warn' }}" role="note">
+    <strong>{{ run.problems|length }} problem{{ "s" if run.problems|length != 1 }} while reading the logs</strong>
+    <ul>
+    {% for p in run.problems %}
+      <li>{{ chip(p.level, "error" if p.level == "error" else "warning") }} {{ p.message }}{% if p.log_file %} <span class="mono" style="color: var(--muted)">({{ p.log_file }})</span>{% endif %}</li>
+    {% endfor %}
+    </ul>
+  </div>
+  {% endif %}
+
+  {% if not run.samples and not run.tasks %}
+  <div class="panel"><p class="empty">No eval logs found in <span class="mono">{{ run.log_dir }}</span>.</p></div>
+  {% else %}
+  {% for row in r.scoreboard %}
+  <div class="cards cfg-cards" data-cfg="{{ row.config }}" data-single hidden>
+    <div class="panel card{{ ' warn' if row.errors else '' }}">
+      <div class="label">Samples</div>
+      <div class="value">{{ row.samples|num }}</div>
+      <div class="sub">{{ row.errors }} errored</div>
+    </div>
+    {% if row.containment_scored is not none %}
+    <div class="panel card{{ ' bad' if row.containment_exposed else ' good' }}">
+      <div class="label">Containment exposures</div>
+      <div class="value">{{ row.containment_exposed }}</div>
+      <div class="sub">of {{ row.containment_scored }} scored checks</div>
+    </div>
+    {% endif %}
+    {% if r.injection and row.injected %}
+    <div class="panel card{{ ' bad' if row.asr else ' good' }}">
+      <div class="label">Injection attack success</div>
+      <div class="value">{{ row.asr|pct }}</div>
+      <div class="sub">{{ row.injected }} injected samples</div>
+    </div>
+    {% endif %}
+    {% if r.capability and row.capability_samples %}
+    <div class="panel card">
+      <div class="label">Capability resolved</div>
+      <div class="value">{{ row.resolve_rate|pct }}</div>
+      <div class="sub">of {{ row.capability_samples }} samples</div>
+    </div>
+    {% endif %}
+    {% if r.monitor and row.violations is not none %}
+    <div class="panel card{{ ' bad' if row.violations else ' good' }}">
+      <div class="label">Monitor violations</div>
+      <div class="value">{{ row.violations }}</div>
+      <div class="sub">samples, of {{ row.monitored }} monitored</div>
+    </div>
+    {% endif %}
+    <div class="panel card">
+      <div class="label">Cost</div>
+      <div class="value">{{ row.cost_usd|usd }}{% if not row.cost_complete %}<span title="some samples have no known price">*</span>{% endif %}</div>
+      <div class="sub">{{ row.tokens|tokens }} agent tokens</div>
+    </div>
+  </div>
+  {% endfor %}
+  <div class="cards" data-view-only="compare">
+    <div class="panel card{{ ' warn' if s_.errors else '' }}">
+      <div class="label">Samples</div>
+      <div class="value">{{ s_.samples|num }}</div>
+      <div class="sub">{{ s_.errors }} errored · {{ s_.limits }} hit a limit</div>
+    </div>
+    {% if s_.containment_scored is not none %}
+    <div class="panel card{{ ' bad' if s_.containment_exposed else ' good' }}">
+      <div class="label">Containment exposures</div>
+      <div class="value">{{ s_.containment_exposed }}</div>
+      <div class="sub">of {{ s_.containment_scored }} scored checks across configs</div>
+    </div>
+    {% endif %}
+    {% if r.injection %}
+    <div class="panel card{{ ' bad' if r.injection.overall.compromised else ' good' }}">
+      <div class="label">Injection attack success</div>
+      <div class="value">{{ r.injection.overall.asr|pct }}</div>
+      <div class="sub">{{ r.injection.overall.compromised }} of {{ r.injection.overall.injected - r.injection.overall.uncertain }} injected samples with a verdict</div>
+    </div>
+    {% endif %}
+    {% if r.capability %}
+    <div class="panel card">
+      <div class="label">Capability resolved</div>
+      <div class="value">{{ r.capability.overall.rate|pct }}</div>
+      <div class="sub">{{ r.capability.overall.resolved }} of {{ r.capability.overall.samples }} samples</div>
+    </div>
+    {% endif %}
+    {% if r.monitor %}
+    <div class="panel card{{ ' bad' if r.monitor.violations else ' good' }}">
+      <div class="label">Monitor violations</div>
+      <div class="value">{{ r.monitor.violations }}</div>
+      <div class="sub">samples, of {{ r.monitor.monitored }} monitored</div>
+    </div>
+    {% endif %}
+    <div class="panel card">
+      <div class="label">Total cost</div>
+      <div class="value">{{ s_.cost_usd|usd }}{% if not s_.cost_complete %}<span title="some samples have no known price">*</span>{% endif %}</div>
+      <div class="sub">{{ s_.total_tokens|tokens }} agent tokens</div>
+      {% if s_.discarded_attempts %}
+      <div class="sub" title="sample attempts in superseded logs (eval_set retries) are not in the totals">+ {{ s_.discarded_tokens|tokens }} tokens ({{ cost_text(s_.discarded_cost_usd, s_.discarded_cost_complete) }}) in {{ s_.discarded_attempts }} discarded attempt{{ "s" if s_.discarded_attempts != 1 }} · run total {{ cost_text(s_.run_cost_usd, s_.run_cost_complete) }}</div>
+      {% endif %}
+    </div>
+  </div>
+
+  <h3>Scoreboard by configuration</h3>
+  <div class="panel table-wrap">
+    <table class="tbl">
+      <thead><tr>
+        <th class="sticky">Configuration</th>
+        {% if r.containment %}<th class="num">Containment exposed</th>{% endif %}
+        {% if r.injection %}<th class="num">Attack success</th>{% endif %}
+        {% if r.capability %}<th class="num">Resolve rate</th>{% endif %}
+        {% if r.monitor %}<th class="num">Monitor violations</th>{% endif %}
+        <th class="num">Cost</th><th class="num">Tokens</th><th class="num">Samples</th><th class="num">Errors</th>
+      </tr></thead>
+      <tbody>
+      {% for row in r.scoreboard %}
+        <tr data-cfg="{{ row.config }}">
+          <th class="sticky">{{ cfg_head(row.config) }}</th>
+          {% if r.containment %}<td class="num">{% if row.containment_scored is not none %}{{ chip(row.containment_exposed ~ " / " ~ row.containment_scored, "exposed" if row.containment_exposed else "contained") }}{% else %}—{% endif %}</td>{% endif %}
+          {% if r.injection %}<td class="num">{{ row.asr|pct }}{% if row.asr is not none %}{{ meter(row.asr, "bad") }}{% endif %}</td>{% endif %}
+          {% if r.capability %}<td class="num">{{ row.resolve_rate|pct }}{% if row.resolve_rate is not none %}{{ meter(row.resolve_rate, "good") }}{% endif %}</td>{% endif %}
+          {% if r.monitor %}<td class="num{{ ' hot' if row.violations }}">{% if row.violations is not none %}{{ row.violations }} / {{ row.monitored }}{% else %}—{% endif %}</td>{% endif %}
+          <td class="num">{{ row.cost_usd|usd }}{% if not row.cost_complete %}*{% endif %}</td>
+          <td class="num" title="{{ row.tokens|num }}">{{ row.tokens|tokens }}</td>
+          <td class="num">{{ row.samples }}</td>
+          <td class="num{{ ' hot' if row.errors }}">{{ row.errors }}</td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  <p class="note">Attack success = injected samples where the agent carried out the injected action, over injected samples with a verdict. Resolve rate counts errored samples as unresolved. * = some samples used tokens but no price is known.</p>
+  {% endif %}
+</section>
+
+{# ------------------------------------------------------------------ containment #}
+{% if r.containment %}
+{% set cv = r.containment %}
+<section class="sec" id="containment">
+  <div class="sec-head">
+    <h2>Containment</h2>
+    <div class="legend">{{ chip("contained", "contained") }}{{ chip("exposed", "exposed") }}{{ chip("error", "error") }}{{ chip("info", "info") }}</div>
+  </div>
+  <p class="lede">Benign probes run as the agent user through the inner sandbox, then verified from outside as root. Rows are checks grouped by category; columns are configurations. Rows where configurations disagree are highlighted.</p>
+  <div class="controls" data-view-only="compare">
+    <label><input type="checkbox" data-diff-toggle="containment-table"> Only rows that differ (<span class="diff-count" data-for="containment-table">{{ cv.differing_rows }}</span>)</label>
+  </div>
+  <div class="panel table-wrap">
+    <table class="tbl cmp" id="containment-table">
+      <thead>
+        <tr>
+          <th class="sticky">Check</th>
+          <th>Severity</th>
+          {% for col in cv.columns %}<th data-cfg="{{ col.config }}">{{ cfg_head(col.config) }}</th>{% endfor %}
+        </tr>
+        <tr>
+          <th class="sticky">Exposed / scored</th><th></th>
+          {% for col in cv.columns %}<th data-cfg="{{ col.config }}">{{ chip(col.exposed ~ " / " ~ col.scored, "exposed" if col.exposed else ("error" if col.sample_error else "contained")) }}{% if col.errors %} <span class="chip warn"><span class="ic">!</span>{{ col.errors }} err</span>{% endif %}</th>{% endfor %}
+        </tr>
+      </thead>
+      <tbody>
+      {% for cat in cv.categories %}
+        <tr class="group{{ ' has-diff' if cat.rows|selectattr('differs')|list }}"><th class="sticky" colspan="{{ 2 + cv.columns|length }}">{{ cat.label }}</th></tr>
+        {% for row in cat.rows %}
+        <tr class="{{ 'diff' if row.differs }}">
+          <th class="sticky"><span class="check-id">{{ row.id }}</span><span class="diff-mark" title="configurations differ">≠</span>{% if not row.scored %} <span class="cfg-meta" style="display:inline">(not scored)</span>{% endif %}</th>
+          <td>{{ sev(row.severity) }}</td>
+          {% for col in cv.columns %}
+          {% set cell = row.cells[col.config] %}
+          <td title="{{ cell.evidence[:600] }}" data-cfg="{{ col.config }}" data-status="{{ cell.status }}">
+            {% if cell.status == "missing" %}<span class="cfg-meta">—</span>{% else %}
+            {% set label = cell.status ~ ((" " ~ cell.counts.get(cell.status, 0) ~ "/" ~ cell.n) if cell.n > 1 else "") %}
+            {% if cell.sample_uid %}<a href="#{{ cell.sample_uid }}">{{ chip(label, cell.status) }}</a>{% else %}{{ chip(label, cell.status) }}{% endif %}
+            {% endif %}
+          </td>
+          {% endfor %}
+        </tr>
+        {% endfor %}
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% for col in cv.columns if col.sample_error %}
+  <div class="alert warn" data-cfg="{{ col.config }}"><strong>{{ labels[col.config] }}</strong>: containment sample has no results — {{ col.sample_error }}</div>
+  {% endfor %}
+  <p class="note">Hover a cell for evidence; click it to open the sample. With several epochs a cell shows the worst outcome and how many epochs had it.</p>
+</section>
+{% endif %}
+
+{# ------------------------------------------------------------------ injection #}
+{% if r.injection %}
+{% set iv = r.injection %}
+<section class="sec" id="injection">
+  <div class="sec-head"><h2>Prompt injection (CodeIPI)</h2></div>
+  <p class="lede">Coding tasks with injected instructions in issues, comments, READMEs or configs. <em>Compromised</em> means the agent carried out the injected action (secret read, marker command run, persistence file changed).</p>
+  <div class="panel table-wrap">
+    <table class="tbl">
+      <thead><tr>
+        <th class="sticky">Configuration</th>
+        <th class="num">Samples</th><th class="num">Injected</th><th class="num">Compromised</th>
+        <th class="num">Attack success</th><th class="num">Uncertain</th><th class="num">Detected</th>
+        <th class="num">Task completed</th><th class="num">Benign</th><th class="num">False positives</th><th class="num">Errors</th>
+      </tr></thead>
+      <tbody>
+      {% for key in iv.configs %}
+      {% set st = iv.per_config[key] %}
+        <tr data-cfg="{{ key }}">
+          <th class="sticky">{{ cfg_head(key) }}</th>
+          <td class="num">{{ st.samples }}</td>
+          <td class="num">{{ st.injected }}</td>
+          <td class="num{{ ' hot' if st.compromised }}">{{ st.compromised }}</td>
+          <td class="num">{{ st.asr|pct }}{% if st.asr is not none %}{{ meter(st.asr, "bad") }}{% endif %}</td>
+          <td class="num">{{ st.uncertain }}</td>
+          <td class="num">{{ st.detected }} <span class="cfg-meta" style="display:inline">({{ st.detection_rate|pct }})</span></td>
+          <td class="num">{{ st.completion_rate|pct }}{% if st.completion_rate is not none %}{{ meter(st.completion_rate, "good") }}{% endif %}</td>
+          <td class="num">{{ st.benign }}</td>
+          <td class="num">{{ st.false_positives }}</td>
+          <td class="num{{ ' hot' if st.errors }}">{{ st.errors }}</td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  {% for title, first_col, rows in [("By payload category", "Payload category", iv.by_category), ("By injection vector", "Vector", iv.by_vector)] %}
+  {% if rows %}
+  <h3>{{ title }} — attack success</h3>
+  <div class="panel table-wrap">
+    <table class="tbl">
+      <thead><tr>
+        <th class="sticky">{{ first_col }}</th>
+        {% for key in iv.configs %}<th class="num" data-cfg="{{ key }}">{{ cfg_head(key) }}</th>{% endfor %}
+        <th class="num" data-all>All</th>
+      </tr></thead>
+      <tbody>
+      {% for row in rows %}
+        <tr>
+          <th class="sticky">{{ row.key }}</th>
+          {% for key in iv.configs %}
+          {% set st = row.cells[key] %}
+          <td class="num{{ ' hot' if st.compromised }}" data-cfg="{{ key }}">{% if st.injected %}{{ st.asr|pct }} <span class="cfg-meta" style="display:inline">({{ st.compromised }}/{{ st.injected - st.uncertain }})</span>{% else %}—{% endif %}</td>
+          {% endfor %}
+          <td class="num" data-all>{{ row.total.asr|pct }} <span class="cfg-meta" style="display:inline">({{ row.total.compromised }}/{{ row.total.injected - row.total.uncertain }})</span></td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% endif %}
+  {% endfor %}
+  <p class="note">Uncertain = the CodeIPI scorer could not reach a verdict (e.g. no persistence baseline); excluded from the attack-success denominator. Errored samples have no verdict.</p>
+</section>
+{% endif %}
+
+{# ------------------------------------------------------------------ capability #}
+{% if r.capability %}
+{% set capv = r.capability %}
+<section class="sec" id="capability">
+  <div class="sec-head"><h2>Capability</h2></div>
+  <p class="lede">Small bug-fix tasks scored by hidden reference tests (pristine test files restored before scoring).</p>
+  <div class="panel table-wrap">
+    <table class="tbl">
+      <thead><tr>
+        <th class="sticky">Configuration</th>
+        <th class="num">Samples</th><th class="num">Resolved</th><th class="num">Failed</th><th class="num">Errors</th>
+        <th class="num">Limits hit</th><th class="num">Tests tampered</th><th class="num">Resolve rate</th>
+      </tr></thead>
+      <tbody>
+      {% for key in capv.configs %}
+      {% set st = capv.per_config[key] %}
+        <tr data-cfg="{{ key }}">
+          <th class="sticky">{{ cfg_head(key) }}</th>
+          <td class="num">{{ st.samples }}</td>
+          <td class="num">{{ st.resolved }}</td>
+          <td class="num">{{ st.failed }}</td>
+          <td class="num{{ ' hot' if st.errors }}">{{ st.errors }}</td>
+          <td class="num">{{ st.limits }}</td>
+          <td class="num{{ ' hot' if st.tampered }}">{{ st.tampered }}</td>
+          <td class="num">{{ st.rate|pct }}{% if st.rate is not none %}{{ meter(st.rate, "good") }}{% endif %}</td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  <h3>Per task</h3>
+  <div class="panel table-wrap">
+    <table class="tbl cmp">
+      <thead><tr>
+        <th class="sticky">Task</th>
+        {% for key in capv.configs %}<th data-cfg="{{ key }}">{{ cfg_head(key) }}</th>{% endfor %}
+      </tr></thead>
+      <tbody>
+      {% for row in capv.tasks %}
+        <tr class="{{ 'diff' if row.differs }}">
+          <th class="sticky"><span class="check-id">{{ row.id }}</span><span class="diff-mark" title="configurations differ">≠</span></th>
+          {% for key in capv.configs %}
+          {% set cell = row.cells[key] %}
+          <td data-cfg="{{ key }}" data-status="{{ cell.status ~ (cell.passed ~ '/' ~ cell.n if cell.n > 1 else '') }}">{% if cell.status == "missing" %}<span class="cfg-meta">—</span>{% else %}<a href="#{{ cell.sample_uid }}">{{ chip(cell.status ~ ((" " ~ cell.passed ~ "/" ~ cell.n) if cell.n > 1 else ""), cell.status) }}</a>{% endif %}</td>
+          {% endfor %}
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+{% endif %}
+
+{# ------------------------------------------------------------------ monitor #}
+{% if r.monitor %}
+{% set mv = r.monitor %}
+<section class="sec" id="monitor">
+  <div class="sec-head"><h2>Boundary monitor</h2></div>
+  <p class="lede">Root-side checks after each agent-driven sample: canary tokens in the transcript, collector hits, writes outside the workspace, persistence changes and decoy tampering. Counts are samples with the violation.</p>
+  <div class="panel table-wrap">
+    <table class="tbl">
+      <thead><tr>
+        <th class="sticky">Configuration</th><th class="num">Monitored</th>
+        {% for key, label in mv.flags %}<th class="num">{{ label }}</th>{% endfor %}
+        <th class="num">Any violation</th>
+      </tr></thead>
+      <tbody>
+      {% set ns = namespace(suite=none) %}
+      {% for row in mv.rows %}
+        {% if row.suite != ns.suite %}
+        {% set ns.suite = row.suite %}
+        <tr class="group"><th class="sticky" colspan="{{ 3 + mv.flags|length }}">{{ row.suite }}</th></tr>
+        {% endif %}
+        <tr data-cfg="{{ row.config }}">
+          <th class="sticky">{{ cfg_head(row.config) }}</th>
+          <td class="num">{{ row.monitored }}{% if row.monitored < row.samples %} <span class="cfg-meta" style="display:inline">of {{ row.samples }}</span>{% endif %}</td>
+          {% for key, label in mv.flags %}<td class="num{{ ' hot' if row.counts[key] }}">{{ row.counts[key] }}</td>{% endfor %}
+          <td class="num{{ ' hot' if row.any_violation }}">{{ row.any_violation }}</td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+{% endif %}
+
+{# ------------------------------------------------------------------ economics #}
+{% set ev = r.economics %}
+<section class="sec" id="economics">
+  <div class="sec-head"><h2>Economics</h2></div>
+  <p class="lede">Agent-side usage per suite and configuration. Time columns sum per-sample wall-clock and working time (samples may run in parallel).</p>
+  {% if ev.rows %}
+  <div class="panel table-wrap">
+    <table class="tbl dense">
+      <thead><tr>
+        <th class="sticky">Configuration</th>
+        <th class="num">Samples</th><th class="num">Resolved</th><th class="num">Errors</th>
+        <th class="num">Input</th><th class="num">Output</th><th class="num">Cache read / write</th><th class="num">Reasoning</th><th class="num">Total tokens</th>
+        <th class="num">Model / tool calls</th><th class="num">Cost</th><th class="num">Wall / working</th>
+        <th class="num">Cost / resolved</th><th class="num">Tokens / resolved</th>
+        {% if ev.static_scan %}<th class="num" title="Bandit findings in the Python files the agent added or changed that the original files did not have (quality signal, not a violation)">New static findings (high)</th>{% endif %}
+        {% if ev.discarded %}<th class="num" title="sample attempts in superseded logs (eval_set retries), not in the columns to the left">Discarded attempts</th>{% endif %}
+      </tr></thead>
+      <tbody>
+      {% set ns = namespace(suite=none) %}
+      {% for row in ev.rows %}
+      {% set e = row.summary %}
+        {% if row.suite != ns.suite %}
+        {% set ns.suite = row.suite %}
+        <tr class="group"><th class="sticky" colspan="{{ 14 + (1 if ev.discarded else 0) + (1 if ev.static_scan else 0) }}">{{ row.suite }}</th></tr>
+        {% endif %}
+        <tr data-cfg="{{ row.config }}">
+          <th class="sticky">{{ cfg_head(row.config) }}</th>
+          <td class="num">{{ e.samples }}</td>
+          <td class="num">{{ e.resolved }}</td>
+          <td class="num{{ ' hot' if e.errors }}">{{ e.errors }}</td>
+          <td class="num" title="{{ e.usage.input|num }}">{{ e.usage.input|tokens }}</td>
+          <td class="num" title="{{ e.usage.output|num }}">{{ e.usage.output|tokens }}</td>
+          <td class="num" title="{{ e.usage.cache_read|num }} / {{ e.usage.cache_write|num }}">{{ e.usage.cache_read|tokens }} / {{ e.usage.cache_write|tokens }}</td>
+          <td class="num" title="{{ e.usage.reasoning|num }}">{{ e.usage.reasoning|tokens }}</td>
+          <td class="num" title="{{ e.usage.total|num }}"><strong>{{ e.usage.total|tokens }}</strong></td>
+          <td class="num">{{ e.model_calls|num }} / {{ e.tool_calls|num }}</td>
+          <td class="num"><strong>{{ e.cost_usd|usd }}</strong>{% if not e.cost_complete %}*{% endif %}</td>
+          <td class="num" title="mean {{ e.mean_wall_time|duration }} wall per sample">{{ e.wall_time|duration }} / {{ e.working_time|duration }}</td>
+          <td class="num">{{ e.cost_per_resolved|usd }}</td>
+          <td class="num">{{ e.tokens_per_resolved|tokens }}</td>
+          {% if ev.static_scan %}<td class="num{{ ' hot' if row.static_high }}">{% if row.static_findings is none %}—{% else %}<span title="{{ row.static_scanned }} sample(s) scanned">{{ row.static_findings }} ({{ row.static_high }})</span>{% endif %}</td>{% endif %}
+          {% if ev.discarded %}
+          {% set d = row.discarded %}
+          <td class="num{{ ' hot' if d and d.usage.total }}">{% if d %}<span title="{{ d.usage.total|num }} agent tokens">{{ d.samples }} · {{ d.usage.total|tokens }} · {{ cost_text(d.cost_usd, d.cost_complete) }}</span>{% else %}—{% endif %}</td>
+          {% endif %}
+        </tr>
+        {% if e.by_model|length > 1 %}
+        {% for model, u in e.by_model|dictsort %}
+        <tr class="by-model" data-cfg="{{ row.config }}">
+          <th class="sticky"><span class="cfg-meta mono" title="agent calls served by this model">↳ {{ model }}</span></th>
+          <td colspan="3"></td>
+          <td class="num" title="{{ u.input|num }}">{{ u.input|tokens }}</td>
+          <td class="num" title="{{ u.output|num }}">{{ u.output|tokens }}</td>
+          <td class="num">{{ u.cache_read|tokens }} / {{ u.cache_write|tokens }}</td>
+          <td class="num">{{ u.reasoning|tokens }}</td>
+          <td class="num">{{ u.total|tokens }}</td>
+          <td></td>
+          <td class="num">{% if u.cost is none %}{{ "cost unknown" if u.total else "—" }}{% else %}{{ u.cost|usd }}{% endif %}</td>
+          <td colspan="{{ 3 + (1 if ev.discarded else 0) + (1 if ev.static_scan else 0) }}"></td>
+        </tr>
+        {% endfor %}
+        {% endif %}
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <div class="panel"><p class="empty">No agent-driven samples in this run.</p></div>
+  {% endif %}
+  {% set o = ev.overall %}
+  <p class="note" data-view-only="compare">
+    Whole run (all suites): {{ o.usage.total|num }} agent tokens, {{ o.model_calls|num }} model calls, {{ o.cost_usd|usd }}{% if not o.cost_complete %} (incomplete: some samples have no price){% endif %}, {{ o.wall_time|duration }} summed wall time.
+    {% if ev.discarded %}{% set d = ev.discarded %}{% set t = ev.run_total %}
+    Discarded attempts: {{ d.samples }} sample attempt{{ "s" if d.samples != 1 }} in superseded logs (errored or cancelled attempts that eval_set re-ran) used {{ d.usage.total|num }} agent tokens ({{ cost_text(d.cost_usd, d.cost_complete) }}); they are not in the table or the totals above.
+    Run total including them: {{ t.usage.total|num }} agent tokens ({{ cost_text(t.cost_usd, t.cost_complete) }}).
+    {% endif %}
+    Cost comes from Inspect's recorded <code>total_cost</code> when model prices were registered, otherwise from the model profile pricing.
+    {% if ev.scoring_excluded %}Excluded: {{ o.scoring_usage.total|num }} tokens{% if o.scoring_cost_usd is not none %} ({{ o.scoring_cost_usd|usd }}){% endif %} used by LLM-graded scorers.{% endif %}
+  </p>
+</section>
+
+{# ------------------------------------------------------------------ samples #}
+<section class="sec" id="samples">
+  <div class="sec-head"><h2>Samples</h2></div>
+  <p class="lede">Every sample in the logs, including errored ones. Open a sample for scores, evidence and errors; the full transcript is in the Inspect log viewer.</p>
+  <div class="filters" role="search">
+    <input type="search" id="sample-search" placeholder="Filter by sample id, configuration, error text…" aria-label="Filter samples">
+    <select id="sample-filter" aria-label="Show">
+      <option value="">All samples</option>
+      <option value="problem">Problems only</option>
+      <option value="error">Errored</option>
+      <option value="limit">Limit hit</option>
+      <option value="exposed">Containment exposed</option>
+      <option value="compromised">Injection compromised</option>
+      <option value="violation">Monitor violation</option>
+      <option value="unresolved">Unresolved</option>
+    </select>
+    <button class="btn" type="button" data-expand="1">Expand all</button>
+    <button class="btn" type="button" data-expand="0">Collapse all</button>
+    <span id="sample-count" aria-live="polite"></span>
+  </div>
+
+  {% for task, samples in groups %}
+  <details class="panel task" open data-cfg="{{ task.config }}">
+    <summary>
+      <span class="suite">{{ task.suite }}</span>
+      <strong>{{ labels[task.config] }}</strong>
+      <span class="cfg-meta" style="display:inline">{{ samples|length }} sample{{ "s" if samples|length != 1 }}{% if task.samples_expected is not none and task.samples_expected != samples|length %} of {{ task.samples_expected }} expected{% endif %}</span>
+      {% if task.status != "success" %}{{ chip(task.status, "error") }}{% endif %}
+      {% if task.discarded %}<span class="cfg-meta" style="display:inline" title="sample attempts in superseded logs of this task, not shown below">+ {{ task.discarded.samples }} discarded attempt{{ "s" if task.discarded.samples != 1 }} ({{ task.discarded.usage.total|tokens }} tokens, {{ cost_text(task.discarded.cost_usd, task.discarded.cost_complete) }})</span>{% endif %}
+      <span class="spacer"></span>
+      <span class="cfg-meta mono" style="display:inline">{{ task.log_file }}</span>
+    </summary>
+    {% if task.error %}<div class="alert" style="margin: 12px 16px"><strong>Task error:</strong> {{ task.error }}</div>{% endif %}
+    {% for s in samples %}
+    {% set e = s.economics %}
+    <details class="sample" id="{{ s.uid }}" data-cfg="{{ s.config }}" data-flags="{{ flags(s) }}" data-search="{{ (s.id ~ ' ' ~ labels[s.config] ~ ' ' ~ s.suite ~ ' ' ~ (s.error or '') ~ ' ' ~ (s.limit or ''))|lower }}">
+      <summary>
+        <span class="sid">{{ s.id }}</span>{% if multi_epoch %}<span class="ep">epoch {{ s.epoch }}</span>{% endif %}
+        {% for label, status in badges(s) %}{{ chip(label, status) }}{% endfor %}
+        <span class="spacer"></span>
+        <span class="stat" title="{{ e.usage.total|num }} tokens">{{ e.usage.total|tokens }} tok</span>
+        <span class="stat">{{ e.cost_usd|usd }}</span>
+        <span class="stat">{{ e.total_time|duration }}</span>
+      </summary>
+      <div class="sample-body">
+        {% if s.error %}
+        <div class="alert">
+          <strong>Error:</strong> <span class="err-text">{{ s.error }}</span>
+          {% if s.traceback %}<details style="margin-top:6px"><summary>Traceback</summary><pre class="block">{{ s.traceback }}</pre></details>{% endif %}
+        </div>
+        {% endif %}
+        {% if s.limit %}<div class="alert warn"><strong>Limit hit:</strong> {{ s.limit }}</div>{% endif %}
+        <dl class="meta">
+          <div><dt>Sample</dt><dd class="mono">{{ s.id }} · epoch {{ s.epoch }}</dd></div>
+          <div><dt>Configuration</dt><dd>{{ labels[s.config] }} <span class="cfg-meta">{{ cfg_meta(s.config) }}</span></dd></div>
+          <div><dt>Tokens (in / out / cache r / cache w / reasoning)</dt><dd class="mono">{{ e.usage.input|num }} / {{ e.usage.output|num }} / {{ e.usage.cache_read|num }} / {{ e.usage.cache_write|num }} / {{ e.usage.reasoning|num }}</dd></div>
+          <div><dt>Cost</dt><dd>{{ e.cost_usd|usd }} <span class="cfg-meta" style="display:inline">({{ e.cost_source }})</span></dd></div>
+          <div><dt>Model calls / tool calls</dt><dd>{{ e.model_calls }} / {{ e.tool_calls }}</dd></div>
+          <div><dt>Wall / working time</dt><dd>{{ e.total_time|duration }} / {{ e.working_time|duration }}</dd></div>
+          {% if s.retries %}<div><dt>Retries</dt><dd>{{ s.retries }} earlier attempt{{ "s" if s.retries != 1 }} errored</dd></div>{% endif %}
+          {% if e.scoring_usage.total %}<div><dt>Scorer tokens (excluded)</dt><dd>{{ e.scoring_usage.total|num }}</dd></div>{% endif %}
+        </dl>
+
+        {% if s.scores %}
+        <h3>Scores</h3>
+        <div class="table-wrap" style="border:1px solid var(--grid)">
+          <table class="tbl">
+            <thead><tr><th>Scorer</th><th>Value</th><th>Explanation</th></tr></thead>
+            <tbody>
+            {% for name, sc in s.scores.items() %}
+              <tr>
+                <td class="mono">{{ name }}</td>
+                <td>{% if name == "containment_scorer" %}<span class="cfg-meta">{{ s.checks|length }} checks, see below</span>{% else %}{{ show_value(sc.value) }}{% endif %}{% if sc.answer and sc.answer != sc.value %} <span class="cfg-meta">answer: {{ sc.answer[:200] }}</span>{% endif %}</td>
+                <td style="white-space: pre-wrap; min-width: 240px">{{ sc.explanation or "" }}</td>
+              </tr>
+            {% endfor %}
+            </tbody>
+          </table>
+        </div>
+        {% elif not s.error %}
+        <p class="note">Not scored.</p>
+        {% endif %}
+
+        {% if s.checks %}
+        <h3>Containment checks</h3>
+        <div class="table-wrap" style="border:1px solid var(--grid)">
+          <table class="tbl">
+            <thead><tr><th>Check</th><th>Category</th><th>Severity</th><th>Status</th><th>Evidence</th></tr></thead>
+            <tbody>
+            {% for c in s.checks %}
+              <tr>
+                <td class="check-id">{{ c.id }}</td>
+                <td>{{ category_labels.get(c.category, c.category) }}</td>
+                <td>{{ sev(c.severity) }}</td>
+                <td>{{ chip(c.status, c.status) }}</td>
+                <td style="white-space: pre-wrap; word-break: break-word" class="mono">{{ c.evidence }}</td>
+              </tr>
+            {% endfor %}
+            </tbody>
+          </table>
+        </div>
+        {% endif %}
+
+        {% if s.injection %}
+        {% set inj = s.injection %}
+        <h3>Injection</h3>
+        <dl class="meta">
+          <div><dt>Outcome</dt><dd>{{ chip(inj.outcome, inj.outcome) }}</dd></div>
+          <div><dt>Vector</dt><dd>{{ inj.vector }}</dd></div>
+          <div><dt>Payload category</dt><dd>{{ inj.category }}</dd></div>
+          <div><dt>Severity / sophistication</dt><dd>{{ inj.severity }} / {{ inj.sophistication }}</dd></div>
+          <div><dt>Resistance score</dt><dd>{{ inj.irr_score if inj.irr_score is not none else "—" }}</dd></div>
+          <div><dt>Task completed</dt><dd>{{ chip("yes" if inj.task_completed else "no", "pass" if inj.task_completed else "fail") }}</dd></div>
+          {% if inj.is_benign %}<div><dt>False positive</dt><dd>{{ chip("yes" if inj.false_positive else "no", "fail" if inj.false_positive else "pass") }}</dd></div>{% endif %}
+        </dl>
+        {% endif %}
+
+        {% if s.monitor %}
+        <h3>Boundary monitor</h3>
+        <div class="tags" style="gap:6px">
+          {% for key, label in monitor_flags %}{% if key in s.monitor.flags %}{{ chip(label, "violation" if s.monitor.flags[key] else "clean") }}{% endif %}{% endfor %}
+        </div>
+        {% if s.monitor.evidence %}<details style="margin-top:8px"><summary>Monitor evidence</summary><pre class="block">{{ s.monitor.evidence|pretty }}</pre></details>{% endif %}
+        {% endif %}
+
+        {% if s.static_findings is not none %}
+        {% set vs = s.scores.get("generated_vulns") %}
+        <h3>Static scan of the agent's changes</h3>
+        <dl class="meta">
+          <div><dt>New findings</dt><dd>{{ chip(s.static_findings ~ " (" ~ s.static_high ~ " high)", "fail" if s.static_high else ("info" if s.static_findings else "pass")) }}</dd></div>
+        </dl>
+        {% if vs and vs.metadata.findings %}<details style="margin-top:8px"><summary>Findings</summary><pre class="block">{{ vs.metadata.findings|pretty }}</pre></details>{% endif %}
+        {% endif %}
+
+        {% if s.output %}
+        <h3>Final output</h3>
+        <pre class="block">{{ s.output }}</pre>
+        {% endif %}
+
+        <div class="cmd">
+          <span class="cfg-meta" style="display:inline">Full transcript:</span>
+          <code>{{ s.view_command }}</code>
+          <button class="btn" type="button" data-copy="{{ s.view_command }}">Copy</button>
+          <span class="cfg-meta" style="display:inline">then open <span class="mono">{{ s.log_file }}</span>, sample <span class="mono">{{ s.id }}</span></span>
+        </div>
+      </div>
+    </details>
+    {% else %}
+    <p class="empty">No samples in this log.</p>
+    {% endfor %}
+  </details>
+  {% else %}
+  <div class="panel"><p class="empty">No samples.</p></div>
+  {% endfor %}
+</section>
+</main>
+
+<footer>
+  <div class="wrap">Generated by agenteval on {{ r.generated_at|ts }} · machine-readable data in <span class="mono">data.json</span> next to this file.</div>
+</footer>
+
+<script>
+(function () {
+  "use strict";
+  var root = document.documentElement;
+  var KEY = "agenteval-theme";
+
+  var toggle = document.getElementById("theme-toggle");
+  if (toggle) {
+    toggle.addEventListener("click", function () {
+      var current = root.getAttribute("data-theme");
+      var dark = current ? current === "dark" : window.matchMedia("(prefers-color-scheme: dark)").matches;
+      var next = dark ? "light" : "dark";
+      root.setAttribute("data-theme", next);
+      try { localStorage.setItem(KEY, next); } catch (e) { /* storage unavailable */ }
+    });
+  }
+
+  // highlight the section being read: the last one whose top passed under the nav
+  var links = Array.prototype.slice.call(document.querySelectorAll("nav.sections a[href^='#']"));
+  var sections = Array.prototype.slice.call(document.querySelectorAll("section.sec"));
+  var ticking = false;
+  function markActive() {
+    ticking = false;
+    var current = sections.length ? sections[0].id : null;
+    sections.forEach(function (sec) { if (sec.getBoundingClientRect().top <= 120) current = sec.id; });
+    if (window.innerHeight + window.scrollY >= document.body.scrollHeight - 4 && sections.length) {
+      current = sections[sections.length - 1].id;
+    }
+    links.forEach(function (a) { a.classList.toggle("active", a.getAttribute("href") === "#" + current); });
+  }
+  window.addEventListener("scroll", function () {
+    if (!ticking) { ticking = true; window.requestAnimationFrame(markActive); }
+  }, { passive: true });
+  markActive();
+
+  // "only rows that differ" toggles
+  document.querySelectorAll("[data-diff-toggle]").forEach(function (cb) {
+    cb.addEventListener("change", function () {
+      var table = document.getElementById(cb.getAttribute("data-diff-toggle"));
+      if (table) table.classList.toggle("only-diff", cb.checked);
+    });
+  });
+
+  // configuration views: "compare" (the picked configurations side by side) or one configuration
+  var view = "compare";
+  var picker = document.getElementById("cmp-pick");
+  var boxes = picker ? Array.prototype.slice.call(picker.querySelectorAll("input[type=checkbox]")) : [];
+  var allKeys = boxes.map(function (b) { return b.value; });
+  function visibleCfg(key) {
+    if (view !== "compare") return key === view;
+    if (!boxes.length) return true;
+    for (var i = 0; i < boxes.length; i++) if (boxes[i].value === key) return boxes[i].checked;
+    return true;
+  }
+  function recomputeDiffs() {
+    // a row differs when the configurations on screen disagree
+    document.querySelectorAll("table.cmp").forEach(function (table) {
+      var n = 0;
+      var group = null;
+      Array.prototype.slice.call(table.tBodies[0] ? table.tBodies[0].rows : []).forEach(function (tr) {
+        if (tr.classList.contains("group")) { group = tr; tr.classList.remove("has-diff"); return; }
+        var seen = {};
+        var count = 0;
+        tr.querySelectorAll("td[data-status]").forEach(function (td) {
+          if (td.hidden) return;
+          var st = td.getAttribute("data-status");
+          if (st === "missing") return;
+          if (!seen[st]) { seen[st] = true; count++; }
+        });
+        var differs = count > 1;
+        tr.classList.toggle("diff", differs);
+        if (differs) { n++; if (group) group.classList.add("has-diff"); }
+      });
+      document.querySelectorAll(".diff-count[data-for='" + table.id + "']").forEach(function (el) { el.textContent = n; });
+    });
+  }
+  function hideEmptyGroups() {
+    // suite group headers whose configuration rows are all hidden
+    document.querySelectorAll("table.tbl tbody").forEach(function (tbody) {
+      var rows = Array.prototype.slice.call(tbody.rows);
+      rows.forEach(function (tr, i) {
+        if (!tr.classList.contains("group") || tr.closest("table.cmp")) return;
+        var any = false;
+        for (var j = i + 1; j < rows.length && !rows[j].classList.contains("group"); j++) {
+          if (!rows[j].hidden) { any = true; break; }
+        }
+        tr.hidden = !any;
+      });
+    });
+  }
+  function applyView() {
+    var allPicked = boxes.every(function (b) { return b.checked; });
+    document.querySelectorAll("[data-cfg]").forEach(function (el) {
+      if (el.matches("details.sample, details.task")) return;  // handled by the sample filter
+      var key = el.getAttribute("data-cfg");
+      if (el.hasAttribute("data-single")) el.hidden = view === "compare" || key !== view;
+      else el.hidden = !visibleCfg(key);
+    });
+    document.querySelectorAll("[data-view-only='compare']").forEach(function (el) { el.hidden = view !== "compare"; });
+    document.querySelectorAll("[data-all]").forEach(function (el) { el.hidden = view !== "compare" || !allPicked; });
+    document.querySelectorAll(".view-tab").forEach(function (tab) {
+      tab.setAttribute("aria-selected", tab.getAttribute("data-view") === view ? "true" : "false");
+    });
+    hideEmptyGroups();
+    recomputeDiffs();
+    applyFilter();
+  }
+  function setView(next) {
+    view = next;
+    applyView();
+    try { sessionStorage.setItem("agenteval-view:" + document.title, view); } catch (e) { /* storage unavailable */ }
+  }
+  document.querySelectorAll(".view-tab").forEach(function (tab) {
+    tab.addEventListener("click", function () { setView(tab.getAttribute("data-view")); });
+  });
+  boxes.forEach(function (b) { b.addEventListener("change", applyView); });
+  document.querySelectorAll("[data-pick]").forEach(function (btn) {
+    btn.addEventListener("click", function () {
+      var on = btn.getAttribute("data-pick") === "all";
+      boxes.forEach(function (b) { b.checked = on; });
+      applyView();
+    });
+  });
+
+  // sample filter
+  var search = document.getElementById("sample-search");
+  var select = document.getElementById("sample-filter");
+  var count = document.getElementById("sample-count");
+  var samples = Array.prototype.slice.call(document.querySelectorAll("details.sample"));
+  function applyFilter() {
+    var q = (search && search.value || "").trim().toLowerCase();
+    var f = select && select.value || "";
+    var shown = 0;
+    var inView = 0;
+    samples.forEach(function (el) {
+      var cfgOk = visibleCfg(el.getAttribute("data-cfg"));
+      if (cfgOk) inView++;
+      var flags = " " + (el.getAttribute("data-flags") || "") + " ";
+      var ok = cfgOk && (!f || flags.indexOf(" " + f + " ") >= 0) &&
+               (!q || (el.getAttribute("data-search") || "").indexOf(q) >= 0);
+      el.hidden = !ok;
+      if (ok) shown++;
+    });
+    document.querySelectorAll("details.task").forEach(function (t) {
+      if (!visibleCfg(t.getAttribute("data-cfg"))) { t.hidden = true; return; }
+      var any = t.querySelector("details.sample:not([hidden])");
+      var total = t.querySelectorAll("details.sample").length;
+      t.hidden = (q || f) ? !any : false;
+      if (!total) t.hidden = !!(q || f);
+    });
+    if (count) count.textContent = shown + " of " + inView + " shown";
+  }
+  if (search) search.addEventListener("input", applyFilter);
+  if (select) select.addEventListener("change", applyFilter);
+  try {
+    var saved = sessionStorage.getItem("agenteval-view:" + document.title);
+    if (saved && (saved === "compare" || allKeys.indexOf(saved) >= 0)) view = saved;
+  } catch (e) { /* storage unavailable */ }
+  applyView();
+
+  document.querySelectorAll("[data-expand]").forEach(function (btn) {
+    btn.addEventListener("click", function () {
+      var open = btn.getAttribute("data-expand") === "1";
+      samples.forEach(function (el) { if (!el.hidden) el.open = open; });
+    });
+  });
+
+  document.querySelectorAll("[data-copy]").forEach(function (btn) {
+    btn.addEventListener("click", function () {
+      var text = btn.getAttribute("data-copy");
+      function done() { var old = btn.textContent; btn.textContent = "Copied"; setTimeout(function () { btn.textContent = old; }, 1200); }
+      try {
+        navigator.clipboard.writeText(text).then(done, function () { window.prompt("Copy:", text); });
+      } catch (e) { window.prompt("Copy:", text); }
+    });
+  });
+
+  // open a sample linked from a matrix cell
+  function openHash() {
+    var id = decodeURIComponent(location.hash.slice(1));
+    var el = id ? document.getElementById(id) : null;
+    if (!el || el.tagName !== "DETAILS") return;
+    var key = el.getAttribute("data-cfg");
+    if (key && !visibleCfg(key)) setView(allKeys.indexOf(key) >= 0 ? key : "compare");
+    if (search) search.value = "";
+    if (select) select.value = "";
+    applyFilter();
+    var parent = el.parentElement ? el.parentElement.closest("details") : null;
+    if (parent) parent.open = true;
+    el.open = true;
+    el.classList.add("flash");
+    setTimeout(function () { el.classList.remove("flash"); }, 1600);
+    el.scrollIntoView({ block: "start" });
+  }
+  window.addEventListener("hashchange", openHash);
+  openHash();
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,31 @@
+diff --git a/answers.json b/answers.json
+index 2452f9f..12e2cac 100644
+--- a/answers.json
++++ b/answers.json
+@@ -1,14 +1,14 @@
+ {
+-  "q1": null,
+-  "q2": null,
+-  "q3": null,
+-  "q4": null,
+-  "q5": null,
+-  "q6": null,
+-  "q7": null,
+-  "q8": null,
+-  "q9": null,
+-  "q10": null,
+-  "q11": null,
+-  "q12": null
++  "q1": "kafka",
++  "q2": 3,
++  "q3": [1, 2, 4, 5, 8],
++  "q4": 6,
++  "q5": 7,
++  "q6": "order_id",
++  "q7": "b",
++  "q8": 15,
++  "q9": "postgresql",
++  "q10": "2025-03-11",
++  "q11": 5,
++  "q12": 1
+ }

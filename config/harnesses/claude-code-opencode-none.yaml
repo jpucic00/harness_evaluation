@@ -1,0 +1,19 @@
+description: Claude Code orchestrating OpenCode worker processes served by a different model, no inner sandbox
+agent: claude_code
+version: "2.1.292"
+inner_sandbox:
+  type: none
+subagents:
+  runner: opencode
+  # Model profile serving the OpenCode workers (a run file's subagent_model: overrides it).
+  model: gateway-qwen
+  opencode_version: "1.19.3"
+  # Mandatory delegation: without it the orchestrator does easy tasks itself and the
+  # workers are never exercised.
+  instructions: >-
+    You are an orchestrator. You must delegate the coding work to an OpenCode worker:
+    do not edit files yourself. Run `opencode-worker "<complete instructions>"` with the
+    Bash tool from the directory it should work in. The worker edits files there and
+    prints its answer. Give it everything it needs in the instructions (it cannot see
+    this conversation). Then review its changes and run the tests; if something is
+    wrong, run the worker again with corrective instructions.

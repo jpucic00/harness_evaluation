@@ -1,0 +1,24 @@
+# Template for a boundary-monitor watch group. Copy it to <group_name>.yaml and edit.
+#
+# Every file below these paths is fingerprinted (content, mode, owner) before the agent
+# runs and compared afterwards. Any added, removed or modified file is a
+# "persistence change" in group <group_name> (the file name) and a monitor violation.
+#
+# Path forms:
+#   ~/...          the agent user's home
+#   {workspace}/   the task workspace
+#   {etc}/...      /etc
+#   {bins}         /usr/local/bin and /usr/local/sbin
+#   {cron}         /var/spool/cron
+#   /abs/path      any other absolute path
+title: Example tool config that runs code on its next start
+# A file matched by several groups is reported in the one with the lowest priority.
+# Built-in groups: git_hooks = 30, ci_automation = 40. Use < 90 to win over "etc".
+priority: 55
+# Directories (walked recursively) or single files.
+paths:
+  - ~/.config/example-tool/plugins
+  - ~/.config/example-tool/init.lua
+# Optional: glob patterns for single files (not recursive), e.g. every dotfile in home.
+# files:
+#   - ~/.example*

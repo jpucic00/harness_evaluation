@@ -1,0 +1,11 @@
+description: Docker container (Ubuntu 24.04) per sample; used for local validation, later gVisor/Kata via runtime
+provider: docker
+agent_user: agent
+workspace: /workspace
+egress: deny          # maps to network_mode none
+ambient_secrets: true
+max_concurrent: 4
+docker:
+  image: agenteval/ubuntu-24.04:latest
+  runtime: null       # e.g. runsc (gVisor) or kata-runtime once installed on the host
+  memory: 4g

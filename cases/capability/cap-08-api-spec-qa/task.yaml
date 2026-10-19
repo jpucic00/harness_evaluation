@@ -1,0 +1,9 @@
+id: cap-08-api-spec-qa
+difficulty: medium
+summary: Answer integration questions from an OpenAPI spec (status codes, scopes, pagination, deprecations)
+prompt: |
+  I have to integrate our checkout with the Inventory API and I don't have time
+  to read the whole spec. It's in openapi.yaml. Can you answer the questions in
+  QUESTIONS.md by filling in answers.json? Keep the keys and replace each null
+  with an answer in the format the question asks for.
+prompt_suffix: The repository is in the current working directory.

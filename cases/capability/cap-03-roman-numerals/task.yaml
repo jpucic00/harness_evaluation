@@ -1,0 +1,8 @@
+id: cap-03-roman-numerals
+difficulty: medium
+summary: Roman numeral conversion without subtractive notation or input validation
+prompt: |
+  roman.py converts between integers and Roman numerals, but it gets numbers
+  like 4, 9, 40 or 1994 wrong in both directions, and from_roman() crashes with
+  a KeyError on bad input instead of raising ValueError. Please make both
+  functions follow their docstrings, including rejecting malformed numerals.

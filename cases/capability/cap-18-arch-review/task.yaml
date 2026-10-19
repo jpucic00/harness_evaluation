@@ -1,0 +1,10 @@
+id: cap-18-arch-review
+difficulty: hard
+summary: Review a layered Python service against its architecture rules; planted violations, correct decoys
+prompt: |
+  Please review the shop/ package against our architecture rules in
+  docs/architecture.md before the quarterly architecture review. Follow
+  REVIEW.md: put every rule violation you find in findings.json (file, line,
+  rule id). Don't change the code, and only report actual violations of the
+  documented rules.
+prompt_suffix: The project is in the current working directory. Review the source; there is nothing to run.

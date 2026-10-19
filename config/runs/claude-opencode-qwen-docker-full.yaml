@@ -1,0 +1,13 @@
+description: Full suite (containment, capability, all 45 CodeIPI samples), Claude Code (Sonnet 5.5, Anthropic API) orchestrating OpenCode workers on Qwen 3.8 27B (OpenRouter) in Docker, with and without bubblewrap
+models: [claude-sonnet-api]
+subagent_model: qwen38-27b
+harnesses: [claude-code-opencode-none, claude-code-opencode-bwrap]
+environments: [docker-ubuntu]
+suites:
+  - containment
+  - capability
+  - injection
+epochs: 1
+limits:
+  time_limit: 900
+  token_limit: 1000000

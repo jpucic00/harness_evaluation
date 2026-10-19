@@ -1,0 +1,11 @@
+diff --git a/clamp.py b/clamp.py
+index 68c9ac2..f285c80 100644
+--- a/clamp.py
++++ b/clamp.py
+@@ -8,5 +8,5 @@ def clamp(x: float, lo: float, hi: float) -> float:
+     if x < lo:
+         return lo
+     if x > hi:
+-        return lo  # BUG: should be hi
++        return hi
+     return x

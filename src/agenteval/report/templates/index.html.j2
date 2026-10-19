@@ -1,0 +1,149 @@
+{#- agenteval run index. Self-contained: no external URLs, system fonts only. -#}
+{% macro chip(label, status) -%}
+<span class="chip {{ status|st }}"><span class="ic" aria-hidden="true">{{ status|icon }}</span>{{ label }}</span>
+{%- endmacro %}
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="generator" content="agenteval">
+<title>agenteval runs</title>
+<script>
+(function () { try { var t = localStorage.getItem("agenteval-theme"); if (t === "light" || t === "dark") document.documentElement.setAttribute("data-theme", t); } catch (e) {} })();
+</script>
+<style>
+:root {
+  color-scheme: light;
+  --page: #f9f9f7; --surface: #fcfcfb; --surface-2: #f1f0ec; --ink: #0b0b0b; --ink-2: #52514e;
+  --muted: #6b6a65; --grid: #e1e0d9; --border: rgba(11, 11, 11, 0.10); --border-strong: rgba(11, 11, 11, 0.18);
+  --accent: #2a78d6; --accent-bg: rgba(42, 120, 214, 0.08);
+  --good-bg: rgba(12, 163, 12, 0.11); --good-ink: #006300;
+  --warn-bg: rgba(250, 178, 25, 0.20); --warn-ink: #7a5200;
+  --bad: #d03b3b; --bad-bg: rgba(208, 59, 59, 0.11); --bad-ink: #a32020;
+  --info: #898781; --info-bg: rgba(137, 135, 129, 0.14);
+  --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+  --sans: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --page: #0d0d0d; --surface: #1a1a19; --surface-2: #232321; --ink: #f0efec; --ink-2: #c3c2b7;
+    --muted: #9a988f; --grid: #2c2c2a; --border: rgba(255, 255, 255, 0.10); --border-strong: rgba(255, 255, 255, 0.18);
+    --accent: #3987e5; --accent-bg: rgba(57, 135, 229, 0.14);
+    --good-bg: rgba(12, 163, 12, 0.20); --good-ink: #5fd35f;
+    --warn-bg: rgba(250, 178, 25, 0.18); --warn-ink: #fcc75a;
+    --bad: #e66767; --bad-bg: rgba(230, 103, 103, 0.20); --bad-ink: #f19393;
+    --info-bg: rgba(137, 135, 129, 0.22);
+  }
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --page: #0d0d0d; --surface: #1a1a19; --surface-2: #232321; --ink: #f0efec; --ink-2: #c3c2b7;
+  --muted: #9a988f; --grid: #2c2c2a; --border: rgba(255, 255, 255, 0.10); --border-strong: rgba(255, 255, 255, 0.18);
+  --accent: #3987e5; --accent-bg: rgba(57, 135, 229, 0.14);
+  --good-bg: rgba(12, 163, 12, 0.20); --good-ink: #5fd35f;
+  --warn-bg: rgba(250, 178, 25, 0.18); --warn-ink: #fcc75a;
+  --bad: #e66767; --bad-bg: rgba(230, 103, 103, 0.20); --bad-ink: #f19393;
+  --info-bg: rgba(137, 135, 129, 0.22);
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--page); color: var(--ink); font: 14px/1.5 var(--sans); }
+a { color: var(--accent); text-decoration: none; }
+a:hover { text-decoration: underline; }
+.wrap { max-width: 1320px; margin: 0 auto; padding: 0 16px; }
+header { padding: 28px 0 18px; }
+header .wrap { display: flex; justify-content: space-between; gap: 16px; align-items: flex-start; }
+h1 { margin: 0; font-size: 24px; font-weight: 700; }
+.sub { color: var(--ink-2); margin-top: 4px; overflow-wrap: anywhere; }
+.btn { font: inherit; font-size: 12.5px; color: var(--ink); background: var(--surface); border: 1px solid var(--border-strong); border-radius: 8px; padding: 5px 10px; cursor: pointer; }
+.panel { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; overflow-x: auto; }
+table { width: 100%; border-collapse: separate; border-spacing: 0; font-size: 13px; }
+th, td { padding: 9px 12px; text-align: left; border-bottom: 1px solid var(--grid); vertical-align: middle; }
+thead th { background: var(--surface-2); color: var(--ink-2); font-size: 11.5px; font-weight: 650; text-transform: uppercase; letter-spacing: 0.03em; white-space: nowrap; }
+tbody tr:last-child > * { border-bottom: 0; }
+tbody tr:hover > * { background: var(--accent-bg); }
+.num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.run-title { font-weight: 650; white-space: nowrap; }
+.nowrap { white-space: nowrap; }
+.meta { display: block; color: var(--muted); font-size: 12px; white-space: nowrap; }
+.mono { font-family: var(--mono); font-size: 12px; }
+.chip { display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; padding: 1px 8px 1px 6px; border-radius: 999px; font-size: 12px; font-weight: 600; line-height: 18px; color: var(--ink); background: var(--info-bg); }
+.chip .ic { font-size: 11px; width: 12px; text-align: center; font-weight: 800; color: var(--info); }
+.chip.good { background: var(--good-bg); } .chip.good .ic { color: var(--good-ink); }
+.chip.bad { background: var(--bad-bg); } .chip.bad .ic { color: var(--bad-ink); }
+.chip.warn { background: var(--warn-bg); } .chip.warn .ic { color: var(--warn-ink); }
+.empty { color: var(--muted); padding: 16px; margin: 0; }
+footer { color: var(--muted); font-size: 12.5px; padding: 18px 0 32px; }
+@media (max-width: 640px) { header .wrap { flex-direction: column; } }
+</style>
+</head>
+<body>
+<header>
+  <div class="wrap">
+    <div>
+      <h1>agenteval runs</h1>
+      <div class="sub">{{ entries|length }} run report{{ "s" if entries|length != 1 }} in <span class="mono">{{ root }}</span></div>
+    </div>
+    <button class="btn" id="theme-toggle" type="button" aria-label="Toggle light or dark theme">Theme</button>
+  </div>
+</header>
+<main class="wrap">
+  <div class="panel">
+  {% if entries %}
+    <table>
+      <thead><tr>
+        <th>Run</th><th>Started</th><th>Configurations</th>
+        <th class="num">Samples</th><th class="num">Errors</th>
+        <th class="num">Containment exposed</th><th class="num">Attack success</th>
+        <th class="num">Resolve rate</th><th class="num">Monitor violations</th>
+        <th class="num">Cost</th><th class="num">Tokens</th>
+      </tr></thead>
+      <tbody>
+      {% for e in entries %}
+      {% set s = e.summary %}
+        <tr>
+          <td>
+            <a class="run-title" href="{{ e.href }}">{{ s.title if s else e.name }}</a>
+            <span class="meta mono">{{ e.name }}</span>
+          </td>
+          {% if s %}
+          <td class="nowrap">{{ s.started_at|ts }}</td>
+          <td>{% for c in s.configs %}<span class="meta">{{ c }}</span>{% else %}—{% endfor %}</td>
+          <td class="num">{{ s.samples|num }}</td>
+          <td class="num">{% if s.errors %}{{ chip(s.errors, "error") }}{% else %}0{% endif %}</td>
+          <td class="num">{% if s.containment_scored is not none %}{{ chip(s.containment_exposed ~ " / " ~ s.containment_scored, "exposed" if s.containment_exposed else "contained") }}{% else %}—{% endif %}</td>
+          <td class="num">{{ s.asr|pct }}</td>
+          <td class="num">{{ s.resolve_rate|pct }}</td>
+          <td class="num">{% if s.violations is not none %}{{ chip(s.violations ~ " / " ~ s.monitored, "violation" if s.violations else "clean") }}{% else %}—{% endif %}</td>
+          <td class="num">{{ s.cost_usd|usd }}{% if not s.cost_complete %}*{% endif %}{% if s.discarded_attempts %}<span class="meta" title="including {{ s.discarded_attempts }} discarded attempts from superseded logs">run total {{ s.run_cost_usd|usd }}{% if not s.run_cost_complete %}*{% endif %}</span>{% endif %}</td>
+          <td class="num">{{ s.total_tokens|tokens }}</td>
+          {% else %}
+          <td colspan="10">{{ chip("unreadable", "error") }} {{ e.error }}</td>
+          {% endif %}
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  {% else %}
+    <p class="empty">No run reports yet. Build one with <span class="mono">agenteval report build LOG_DIR</span>.</p>
+  {% endif %}
+  </div>
+</main>
+<footer><div class="wrap">Generated by agenteval on {{ generated_at|ts }} · * = some samples used tokens but have no known price.</div></footer>
+<script>
+(function () {
+  var root = document.documentElement;
+  var btn = document.getElementById("theme-toggle");
+  if (!btn) return;
+  btn.addEventListener("click", function () {
+    var current = root.getAttribute("data-theme");
+    var dark = current ? current === "dark" : window.matchMedia("(prefers-color-scheme: dark)").matches;
+    var next = dark ? "light" : "dark";
+    root.setAttribute("data-theme", next);
+    try { localStorage.setItem("agenteval-theme", next); } catch (e) { /* storage unavailable */ }
+  });
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,20 @@
+diff --git a/findings.json b/findings.json
+index fe51488..11fc196 100644
+--- a/findings.json
++++ b/findings.json
+@@ -1 +1,14 @@
+-[]
++[
++  {"file": "public/index.html", "line": 2, "rule": "html-lang", "note": "<html> has no lang attribute."},
++  {"file": "src/styles.css", "line": 19, "rule": "color-contrast", "note": "#9a9a9a on #ffffff is about 2.8:1 for 14px text."},
++  {"file": "src/styles.css", "line": 25, "rule": "focus-visible", "note": "button:focus removes the outline with no replacement."},
++  {"file": "src/components/Avatar.jsx", "line": 4, "rule": "img-alt", "note": "User photo has no alt."},
++  {"file": "src/components/SearchBar.jsx", "line": 6, "rule": "form-label", "note": "Placeholder is not a label."},
++  {"file": "src/components/SearchBar.jsx", "line": 12, "rule": "button-name", "note": "Icon-only submit button has no name."},
++  {"file": "src/components/ProductCard.jsx", "line": 4, "rule": "click-no-keyboard", "note": "div with onClick, no role, tabIndex or key handler."},
++  {"file": "src/components/ProductCard.jsx", "line": 10, "rule": "link-name", "note": "'Click here' does not describe the target."},
++  {"file": "src/components/ProductPage.jsx", "line": 9, "rule": "heading-order", "note": "h1 followed by h4."},
++  {"file": "src/components/PromoBanner.jsx", "line": 5, "rule": "media-autoplay", "note": "Autoplaying video with sound and no controls."},
++  {"file": "src/components/CartDrawer.jsx", "line": 12, "rule": "tabindex-positive", "note": "tabIndex={1}."},
++  {"file": "src/components/CartDrawer.jsx", "line": 3, "rule": "aria-hidden-focusable", "note": "Closed drawer is aria-hidden but its buttons stay focusable."}
++]

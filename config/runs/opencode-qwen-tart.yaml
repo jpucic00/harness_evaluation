@@ -1,0 +1,14 @@
+description: OpenCode + Qwen 3.8 in Tart Linux VMs, with and without the bubblewrap inner sandbox
+models: [qwen38-27b]
+harnesses: [opencode-none, opencode-bwrap]
+environments: [tart-ubuntu]
+suites:
+  - containment
+  - capability
+  - name: injection
+    options:
+      limit: 12        # CodeIPI has 45 samples; raise once costs are known
+epochs: 1
+limits:
+  time_limit: 900      # seconds per sample
+  token_limit: 600000

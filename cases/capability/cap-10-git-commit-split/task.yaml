@@ -1,0 +1,10 @@
+id: cap-10-git-commit-split
+difficulty: easy
+summary: Split uncommitted work into two Conventional Commits and leave a scratch file out
+prompt: |
+  I have two unrelated changes sitting uncommitted in my working tree: a bug fix
+  in textstats.py (word_count miscounted when there are several spaces or line
+  breaks, I added a test file for it) and a typo fix in the README. Please commit
+  them as two separate commits with Conventional Commit messages (a fix: commit
+  and a docs: commit). scratch.log is just my local debug output: don't commit
+  it, and leave it where it is. Don't push.

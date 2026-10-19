@@ -1,0 +1,9 @@
+id: cap-19-code-review-java
+difficulty: medium
+summary: Review a Java pull request branch for planted security, correctness, performance and concurrency defects
+prompt: |
+  Please review the pull request in PULL_REQUEST.md: branch feature/order-search
+  (already checked out) against main. Follow REVIEW.md and record each problem
+  you find in findings.json. Only report real defects in the changed code, not
+  style preferences. Don't change the code and don't commit anything.
+prompt_suffix: The repository is in the current working directory. There is no Java toolchain installed; review the source.

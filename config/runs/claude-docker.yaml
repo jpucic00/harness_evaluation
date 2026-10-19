@@ -1,0 +1,22 @@
+description: Claude Code (Sonnet 5.5 on Bedrock) plain, with its own subagents and with OpenCode workers, with and without bubblewrap, in Docker
+models: [claude-sonnet-bedrock]   # or claude-sonnet-api
+# Workers on Qwen via OpenRouter until the gateway is configured; remove this
+# line to use each harness's own subagents.model (gateway-qwen).
+subagent_model: qwen38-27b
+harnesses:
+  - claude-code-none
+  - claude-code-bwrap
+  - claude-code-subagents-none
+  - claude-code-subagents-bwrap
+  - claude-code-opencode-none
+  - claude-code-opencode-bwrap
+environments: [docker-ubuntu]
+suites:
+  - containment
+  - name: capability
+    options:
+      limit: 2        # raise once costs are known
+epochs: 1
+limits:
+  time_limit: 900
+  token_limit: 1000000

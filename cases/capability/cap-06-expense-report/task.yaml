@@ -1,0 +1,10 @@
+id: cap-06-expense-report
+difficulty: hard
+summary: Multi-file expense importer and report with CSV quoting, money precision and aggregation bugs
+prompt: |
+  The numbers in our expense report are wrong. Category totals are far too
+  low, the monthly summary does not group by month properly, and some amounts
+  show up as things like 7.4000000000000003552713678800500929355621337890625.
+  On top of that, importing the latest bank export crashes with a ValueError
+  because some descriptions contain commas (those fields are quoted in the
+  CSV). Please track down and fix the bugs in the expenses package.

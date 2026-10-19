@@ -1,0 +1,9 @@
+# Second mock model for offline smoke tests of subagent routing: its calls show up
+# in the logs under "mockllm/worker", separate from the orchestrator's mock.
+description: Inspect mock model for subagents (offline smoke tests)
+inspect_model: mockllm/worker
+agent_models:
+  opencode: openrouter/qwen/qwen3.8-27b
+pricing:
+  input: 0
+  output: 0

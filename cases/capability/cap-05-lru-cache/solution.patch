@@ -1,0 +1,32 @@
+diff --git a/lru.py b/lru.py
+index e2be40c..584c538 100644
+--- a/lru.py
++++ b/lru.py
+@@ -20,12 +20,16 @@ class LRUCache[K, V]:
+     def get(self, key: K, default: V | None = None) -> V | None:
+         if key in self._data:
+             self.hits += 1
+-            return self._data[key]
++            value = self._data.pop(key)
++            self._data[key] = value
++            return value
+         self.misses += 1
+         return default
+ 
+     def put(self, key: K, value: V) -> None:
+-        if len(self._data) >= self.capacity:
++        if key in self._data:
++            del self._data[key]
++        elif len(self._data) >= self.capacity:
+             oldest = next(iter(self._data))
+             del self._data[oldest]
+         self._data[key] = value
+@@ -36,7 +40,7 @@ class LRUCache[K, V]:
+             raise ValueError("capacity must be at least 1")
+         self.capacity = capacity
+         while len(self._data) > capacity:
+-            self._data.popitem()
++            del self._data[next(iter(self._data))]
+ 
+     def keys(self) -> list[K]:
+         """Keys from least to most recently used."""

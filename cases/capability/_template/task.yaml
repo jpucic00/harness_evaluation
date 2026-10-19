@@ -1,0 +1,11 @@
+# Template for a capability task. Copy this directory to cases/capability/<id>/
+# (e.g. cap-20-csv-quoting), set id to the directory name, and replace the example.
+# Optional: prompt_suffix (see the guide), setup.sh and solution.sh next to this file.
+# Full guide: cases/capability/README.md
+id: _template
+difficulty: easy   # easy | medium | hard
+summary: One line for the report, e.g. "clamp() returns the wrong bound when x is above hi"
+prompt: |
+  Write the request like a user would: the symptom, not the fix.
+  clamp(x, lo, hi) in clamp.py should keep x within [lo, hi], but values above hi
+  come back as lo. Please fix it.

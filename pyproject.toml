@@ -1,0 +1,72 @@
+[project]
+name = "agenteval"
+version = "0.1.0"
+description = "Harness x environment evaluation matrix for coding agents (security + economics) on Inspect AI"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "inspect-ai==0.3.281",
+    "inspect-swe==0.2.71",
+    "inspect-evals==0.25.0",
+    "openai==3.29.0",  # required by Inspect's OpenRouter provider
+    "pydantic>=2.7",
+    "pyyaml>=6.0",
+    "jinja2>=3.1",
+    "click>=8.1",
+    "python-dotenv>=1.0",  # runner loads .env before checking required keys
+    "bandit==1.9.4",  # offline static scan of agent diffs (generated_vulns scorer)
+    "anthropic[bedrock]==1.11.0",
+]
+
+[project.scripts]
+agenteval = "agenteval.cli:main"
+
+[project.entry-points.inspect_ai]
+agenteval = "agenteval._registry"
+
+[dependency-groups]
+dev = [
+    "pytest>=8.0",
+    "pytest-asyncio>=0.23",
+    "mypy>=1.10",
+    "ruff>=0.5",
+    "types-PyYAML>=6.0",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/agenteval"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+markers = [
+    "docker: needs a running Docker daemon",
+    "tart: needs Tart and a built base VM image",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+# Unmaintained helper scripts, kept as-is until they are updated (see their README).
+extend-exclude = ["scripts/catalog"]
+
+[tool.ruff.format]
+# Task fixtures must stay byte-identical to the context lines of their solution.patch.
+exclude = ["cases/capability/**"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+
+[tool.pyright]
+venvPath = "."
+venv = ".venv"
+pythonVersion = "3.12"
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+ignore_missing_imports = true

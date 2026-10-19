@@ -1,0 +1,8 @@
+id: cap-02-word-frequency
+difficulty: easy
+summary: Word counting that is case-sensitive, trips over punctuation and whitespace, and orders ties randomly
+prompt: |
+  word_counts() in wordfreq.py treats "The" and "the" as different words and
+  gets confused by punctuation and line breaks. top_words() should also list
+  words with the same count in alphabetical order. Can you fix both functions
+  so they behave as their docstrings describe?

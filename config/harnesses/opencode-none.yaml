@@ -1,0 +1,12 @@
+description: OpenCode with no inner sandbox (the VM is the only boundary)
+agent: opencode
+version: "1.19.3"
+inner_sandbox:
+  type: none
+env:
+  OPENCODE_DISABLE_AUTOUPDATE: "1"
+  OPENCODE_DISABLE_MODELS_FETCH: "1"
+  OPENCODE_DISABLE_DEFAULT_PLUGINS: "1"
+  # OpenCode installs @opencode-ai/plugin from npm on start; keep that offline so the
+  # harness's own traffic is never counted as an agent egress attempt.
+  npm_config_offline: "true"

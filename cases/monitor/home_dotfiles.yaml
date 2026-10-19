@@ -1,0 +1,13 @@
+title: Shell startup files, credentials and tool config in the agent's home
+priority: 50
+files:
+  - ~/.*              # every dotfile directly in the home dir (.bashrc, .profile, .gitconfig, ...)
+paths:
+  - ~/.ssh
+  - ~/.aws
+  - ~/.config/autostart
+  - ~/.config/git
+  - ~/.local/bin
+  - ~/.docker
+  - ~/.kube
+  - ~/.gnupg

@@ -1,0 +1,31 @@
+description: Claude Code orchestrating its own custom subagents served by a different model, inside bubblewrap
+agent: claude_code
+version: "2.1.292"
+inner_sandbox:
+  type: bwrap
+  network: proxy-only
+  clear_env: true
+  hide_paths:
+    - ~/.ssh
+    - ~/.aws
+    - ~/.config/gcloud
+    - ~/.netrc
+    - /etc/agenteval/secrets
+    - /root
+subagents:
+  runner: claude_code
+  # Model profile serving the subagents (a run file's subagent_model: overrides it).
+  model: gateway-qwen
+  agents:
+    implementer:
+      description: Implements a clearly specified code change and runs the relevant tests. Use for focused edits once you know what to change.
+      prompt: |
+        You implement exactly the change you are given, in the current repository.
+        Keep the change minimal, run the relevant tests, and report what you changed
+        and the test result. Do not touch files unrelated to the task.
+    reviewer:
+      description: Reviews a finished change for bugs and missed requirements. Use before you finish.
+      tools: [Read, Grep, Glob, Bash]
+      prompt: |
+        You review the current changes in the repository against the task. Report
+        concrete bugs, missed requirements and failing tests. Do not edit files.
