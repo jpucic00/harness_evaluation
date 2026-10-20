@@ -6,9 +6,9 @@ Most extensions are a new YAML file. Some need code.
 | --- | --- | --- |
 | A model (another OpenRouter model, an internal gateway, Bedrock, ...) | yes | none |
 | Another version or inner-sandbox variant of OpenCode | yes | none |
-| A new agent CLI (Claude Code, Codex CLI, ...) | no | `config.py`, `harnesses/`, `sandbox_exec.py`, `suites/monitors.py` |
+| A new agent CLI (Codex CLI, ...) | no | `config.py`, `harnesses/`, `sandbox_exec.py`, `suites/monitors.py`, `dev/` |
 | A Docker variant (other runtime, limits, `security_opt`, `bwrap_security_opt`) | yes | none, but the runtime must be installed in Docker |
-| A new sandbox provider (another VM technology) | no | new provider module, `_registry.py`, `config.py`, `environments/__init__.py`, `runner.py` |
+| A new sandbox provider (another VM technology) | no | new provider module, `_registry.py`, `config.py`, `environments/__init__.py`, `runner.py`, `dev/task.py` |
 | A capability task | data files | `tests/test_suites.py` (task count and list) |
 | A new suite | no | `suites/`, `config.py` (`SuiteName`), optionally `report/` |
 | A run file | yes | none |
@@ -33,7 +33,7 @@ uv run agenteval doctor --env <environment>   # tools, images, env vars
 | `model_args` | `{}` | Extra keyword arguments for Inspect's `get_model()`. They are provider-specific, e.g. OpenRouter's `provider:` routing preferences. |
 | `pricing` | none | USD per 1M tokens: `input`, `output`, optional `input_cache_read`, `input_cache_write`. Unset cache prices mean no cache discount: those tokens are charged at the `input` rate. Without `pricing`, cost is reported as `unknown`. |
 | `required_env` | `[]` | Host env vars that must be set before a run starts. They are checked by name; values are never printed. |
-| `agent_models` | `{}` | Model id handed to each agent CLI, keyed by harness `agent` (e.g. `opencode: openrouter/qwen/qwen3.8-27b`). It only selects the CLI's request format and prompt template; OpenCode gets a placeholder key for its provider (`OPENROUTER_API_KEY=sk-none`). The model that answers is always `inspect_model` (see [architecture.md](architecture.md#model-calls-the-bridge)). |
+| `agent_models` | `{}` | Model id handed to each agent CLI, keyed by harness `agent` (e.g. `opencode: openrouter/qwen/qwen3.8-27b`). It only selects the CLI's request format and prompt template; OpenCode gets a placeholder key for its provider (`OPENROUTER_API_KEY=sk-none`). The model that answers is always `inspect_model` (see [architecture.md](architecture.md#model-calls-the-bridge)). An OpenCode session in `agenteval dev` needs the `opencode` entry (or the harness's `agent_model`). |
 
 ### Example: the internal OpenAI-compatible gateway instead of OpenRouter
 
@@ -78,18 +78,18 @@ provider: `anthropic/<model>` with `ANTHROPIC_API_KEY` (`claude-sonnet-api`), or
 | Field | Default | Meaning |
 | --- | --- | --- |
 | `description` | `""` | |
-| `agent` | required | Agent CLI. Currently only `opencode`. |
+| `agent` | required | Agent CLI: `opencode` or `claude_code` (see [below](#claude-code-harnesses-and-subagents)). |
 | `version` | `stable` | Pinned release (e.g. `"1.19.3"`), `stable` or `latest`. Pin it for comparable results. |
 | `agent_model` | none | Overrides the model profile's `agent_models` entry for this harness. |
 | `inner_sandbox.type` | `none` | `none`: plain `exec`. `bwrap`: bubblewrap profile (below). |
 | `inner_sandbox.hide_paths` | `[]` | Paths replaced by an empty tmpfs (directories) or `/dev/null` (files). `~` = the agent's home. Inspect's sandbox-tools dir and `/var/lib/agenteval` are always hidden too, and `/run` is always a private tmpfs. |
-| `inner_sandbox.extra_writable_paths` | `[]` | Writable in addition to the workspace and OpenCode's state dirs (`~/.local/share/opencode`, `~/.local/state/opencode`, `~/.cache/opencode`, `~/.config/opencode`). |
+| `inner_sandbox.extra_writable_paths` | `[]` | Writable in addition to the workspace and the harness state dirs (`~/.local/share/opencode`, `~/.local/state/opencode`, `~/.cache/opencode`, `~/.config/opencode`, `~/.claude`). |
 | `inner_sandbox.network` | `proxy-only` | `proxy-only`: own network namespace, only the model bridge is reachable (through a read-only socket dir). `host`: share the environment's network; the resolver file below `/run` is re-exposed read-only so DNS works. |
-| `inner_sandbox.clear_env` | `true` | Start from an empty environment and pass only `PATH HOME USER LOGNAME LANG LC_ALL TERM TZ`, `OPENCODE_*`, `ANTHROPIC_*`, `OPENAI_*`, `GOOGLE_*`, `OPENROUTER_*`, and `env_passthrough`. |
-| `inner_sandbox.env_passthrough` | `[]` | Extra variable names passed through `clear_env`. |
+| `inner_sandbox.clear_env` | `true` | Start from an empty environment and pass only `PATH HOME USER LOGNAME LANG LC_ALL TERM TZ IS_SANDBOX`, `OPENCODE_*`, `ANTHROPIC_*`, `OPENAI_*`, `GOOGLE_*`, `OPENROUTER_*`, `CLAUDE_*`, `MCP_*`, and `env_passthrough`. |
+| `inner_sandbox.env_passthrough` | `[]` | Extra variable names passed through `clear_env`. `agenteval dev` adds `COLORTERM`, `TERM_PROGRAM` and `TERM_PROGRAM_VERSION`. |
 | `env` | `{}` | Environment variables for the agent CLI. |
-| `system_prompt` | none | Prepended to any suite system prompt (e.g. CodeIPI's). |
-| `options` | `{}` | Extra keyword arguments for `inspect_swe.opencode()`. `version`, `user`, `env` and `sandbox` are reserved. |
+| `system_prompt` | none | Prepended to any suite system prompt (e.g. CodeIPI's). In `agenteval dev`, Claude Code gets it with `--append-system-prompt`; OpenCode ignores it (its TUI has no flag for it). |
+| `options` | `{}` | Extra keyword arguments for `inspect_swe.opencode()` or `inspect_swe.claude_code()`. `version`, `user`, `env` and `sandbox` are reserved; for Claude Code also `model`, `subagent_model` and `model_aliases`. `agenteval dev` does not use them. |
 
 Examples:
 
@@ -131,8 +131,8 @@ dir. The model axis is the **orchestrator**: every Claude Code call goes to the 
 | Field | Default | Meaning |
 | --- | --- | --- |
 | `runner` | required | `claude_code`: Claude Code's own subagents (Agent tool). `opencode`: OpenCode worker processes the orchestrator starts with `opencode-worker "<instructions>"`. |
-| `model` | required | Model profile serving the workers, e.g. `gateway-qwen`. A run file's `subagent_model:` overrides it for every harness (the smoke run uses `mock-worker`). |
-| `agents` | `{}` | `runner: claude_code` only. Custom subagents `name: {description, prompt, tools}`, written to `~/.claude/agents/<name>.md` before the run. Without any, Claude Code's built-in general-purpose subagent runs on the worker model. |
+| `model` | required | Model profile serving the workers, e.g. `gateway-qwen`. A run file's `subagent_model:` overrides it for every harness (the smoke run uses `mock-worker`); `agenteval dev --subagent-model` overrides it for one session. |
+| `agents` | `{}` | `runner: claude_code` only. Custom subagents `name: {description, prompt, tools}`, written to `~/.claude/agents/<name>.md` before the run (`agenteval dev` passes them with `--agents` instead). Without any, Claude Code's built-in general-purpose subagent runs on the worker model. |
 | `opencode_version` | `1.19.3` | `runner: opencode` only. Pinned OpenCode release for the workers. |
 | `instructions` | a short delegation note | Appended to the orchestrator's system prompt. |
 
@@ -179,7 +179,14 @@ Mirror [harnesses/claude_code.py](../src/agenteval/harnesses/claude_code.py):
 5. **Monitor.** Add files the CLI writes on every start to `DEFAULT_IGNORE` in
    [suites/monitors.py](../src/agenteval/suites/monitors.py), and config it auto-loads to
    the `harness_config` watch group in [cases/monitor/harness_config.yaml](../cases/monitor/harness_config.yaml).
-6. **Verify.** Unit tests (see `tests/test_harness_claude_code.py`), then a mock smoke run:
+6. **Dev mode.** `agenteval dev` has its own per-agent code. Add the name to `AgentName` in
+   [dev/session.py](../src/agenteval/dev/session.py). In
+   [dev/task.py](../src/agenteval/dev/task.py), install the CLI in `install_cli` (it must
+   return the real binary, not the `/usr/local/bin` wrapper) and add a launch function like
+   `opencode_launch` (environment and arguments of the interactive CLI), called from
+   `dev_session`. In [dev/userconfig.py](../src/agenteval/dev/userconfig.py), add the CLI's
+   host config folder (`host_config_dir`) and the files copied in and back.
+7. **Verify.** Unit tests (see `tests/test_harness_claude_code.py`), then a mock smoke run:
    containment must still work, and the capability samples must show no monitor violations.
 
 ## Environment profiles
@@ -217,6 +224,12 @@ Build each new environment's image with `uv run agenteval env build <name>`. Env
 share an image name share the build. Docker compose files are generated per cell under
 `.agenteval/compose/<env>-<hash>.yaml`; the hash covers the file's content, so editing a
 profile while a run is in progress never changes that run's containers.
+
+`agenteval dev` ([dev.md](dev.md)) uses the same environment profiles, with these
+differences: it plants no fake credentials whatever `ambient_secrets` says, runs one
+environment per session, copies the repo to `workspace` (`--mount copy`) or mounts it at
+its host path (`--mount live`), and turns on the bridge's web search only with
+`egress: allow`.
 
 ### A different Docker runtime (gVisor, Kata)
 
@@ -260,7 +273,9 @@ A provider is an Inspect `SandboxEnvironment`. Use the Tart provider as the temp
    settings model (like `TartSettings`) and its default in `_provider_settings`.
 4. In [environments/\_\_init\_\_.py](../src/agenteval/environments/__init__.py), map the provider
    to a `SandboxEnvironmentSpec` in `sandbox_spec`. It also receives the cell's
-   `inner_sandbox` type, for providers whose confinement must depend on it (as Docker's does).
+   `inner_sandbox` type, for providers whose confinement must depend on it (as Docker's does),
+   and `mounts`: host folders that `agenteval dev --mount live` shares at the same path (a
+   bind mount for Docker, `tart run --dir` for Tart). Eval runs pass none.
 5. In [runner.py](../src/agenteval/runner.py), extend `build_environment`, `doctor`,
    `cleanup_environments` and `_env_image`.
 6. The guest must provide what
@@ -270,6 +285,11 @@ A provider is an Inspect `SandboxEnvironment`. Use the Tart provider as the temp
    `agent` user, `/workspace`, `/opt/agenteval`, `/var/lib/agenteval` (root, 0700),
    `/etc/agenteval/secrets` and the collector name in `/etc/hosts`. Running `provision.sh`
    itself (with `AGENTEVAL_AGENT_USER` and `AGENTEVAL_WORKSPACE`) is the easiest way.
+7. For `agenteval dev`, return a handle for the provider from `env_handle` in
+   [dev/task.py](../src/agenteval/dev/task.py). It implements `EnvHandle`: attach the
+   user's terminal, run a command, copy a file in and out, and print a shell command for
+   recovery. If the guest must mount the live-mode shares itself, add that to
+   `prepare_live` (Tart mounts its virtiofs shares there).
 
 **The guest must be Linux.** The model bridge and inspect_swe's agent installers support only
 Linux guests (x86_64 or arm64, glibc or musl): inspect_swe rejects other operating systems, and
@@ -372,6 +392,7 @@ Start with `--dry-run`, then `--limit 1`, and read the Economics section before 
 ```sh
 uv run pytest -q
 uv run ruff check .
+uv run ruff format --check .
 uv run mypy src
 uv run agenteval run smoke-docker --run-id my-change-smoke   # offline end-to-end check
 ```

@@ -18,17 +18,21 @@ Names starting with `_` (the templates) are never run.
 ## Workflow
 
 ```bash
-cp -R cases/capability/_template cases/capability/cap-07-my-task    # or the kind you need
+cp -R cases/capability/_template cases/capability/cap-20-my-task    # or the kind you need
 # edit the copy
 uv run pytest -q                                                    # validates every case
 uv run agenteval run smoke-docker                                   # optional: offline end-to-end run (mock model)
 ```
 
-Then run only your case against a real model, for example:
+Then run it against a real model, for example:
 
 ```bash
 uv run agenteval run opencode-qwen-docker --suite capability --limit 1
 ```
+
+`--limit 1` keeps only the first sample (for capability, the easiest task), not
+necessarily yours. To run only your case, list its id under the suite's `ids` option in
+a run file (see the capability and injection guides).
 
 What `uv run pytest` checks for you:
 
@@ -38,6 +42,34 @@ What `uv run pytest` checks for you:
 | Containment | The file loads (`CATEGORY`, `SEVERITY`, `TITLE`, `run`), its name is a valid id, it only imports the standard library and `probe`. |
 | Monitor | The YAML has only known keys, a `title`, an integer `priority` and at least one path. |
 | Injection | `case.yaml` matches the schema, the category fields are consistent (`exec_marker`, `persistence_targets`), `repo/` exists, and the id does not clash with CodeIPI's. |
+
+## Explore with `agenteval dev`
+
+To see a behaviour before you encode it as a case, try the setup by hand.
+[`agenteval dev`](../docs/dev.md) starts one environment with one harness and one model
+and attaches your terminal to the harness CLI, so you can give the agent a task and
+watch what it does. It needs an interactive terminal. The start command for each harness
+is in [dev-features.md](../docs/dev-features.md).
+
+Start it from a scratch copy of the case's repo, outside the agenteval checkout. From
+inside the checkout it would copy the whole agenteval repository into the environment,
+reference cases and solutions included.
+
+```bash
+checkout=$PWD                                                       # the agenteval checkout
+tmp=$(mktemp -d) && cp -R cases/capability/cap-20-my-task/repo/. "$tmp" && cd "$tmp"
+uv run --project "$checkout" agenteval dev --harness opencode-bwrap --env docker-ubuntu --model qwen38-27b
+```
+
+- `--model mock` needs no API key and costs nothing, but the mock only replies with
+  fixed text.
+- `--no-host-config` keeps your own CLI config and memory out of the session; eval runs
+  never use them either.
+- When the CLI exits, answer `d` (discard all) at the review, so nothing is applied.
+
+A dev session is not an eval: it plants no fake secrets (canaries), runs no probes,
+monitor or scorer, and does not run a case's `setup.sh`. Confirm the behaviour with
+`agenteval run` once the case exists.
 
 ## Rules for every case
 

@@ -562,7 +562,9 @@ def test_report_server_is_local_only(tmp_path: Path) -> None:
     try:
         host, port = server.server_address[:2]
         assert host == "127.0.0.1"
-        with urllib.request.urlopen(f"http://127.0.0.1:{port}/index.html", timeout=5) as resp:
+        # No proxies: a corporate http_proxy would otherwise intercept 127.0.0.1.
+        opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+        with opener.open(f"http://127.0.0.1:{port}/index.html", timeout=5) as resp:
             assert resp.read() == b"hello report"
     finally:
         server.shutdown()
@@ -944,3 +946,84 @@ def test_risk_warnings_flag_real_model_injection_in_relaxed_docker() -> None:
     assert runner.risk_warnings([cell("mockllm/model", "bwrap")]) == []
     assert runner.risk_warnings([cell("openrouter/qwen/x", "none")]) == []
     assert runner.risk_warnings([cell("openrouter/qwen/x", "bwrap", runtime="runsc")]) == []
+
+
+# --------------------------------------------------------------------------- dev
+
+
+def _capture_dev_start(monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
+    from agenteval.dev import commands
+
+    seen: dict[str, Any] = {}
+
+    def fake_start(**kwargs: Any) -> int:
+        seen.update(kwargs)
+        return 0
+
+    monkeypatch.setattr(commands, "start_session", fake_start)
+    return seen
+
+
+def test_dev_help() -> None:
+    result = CliRunner().invoke(main, ["dev", "--help"])
+    assert result.exit_code == 0
+    for option in ("--harness", "--env", "--model", "--mount", "--agent-config-dir"):
+        assert option in result.output
+    assert "--exec" not in result.output
+
+
+def test_dev_requires_profiles() -> None:
+    result = CliRunner().invoke(main, ["dev", "--harness", "opencode-none"])
+    assert result.exit_code == 2 and "--harness, --env and --model" in result.output
+
+
+def test_dev_requires_tty(monkeypatch: pytest.MonkeyPatch) -> None:
+    _capture_dev_start(monkeypatch)
+    args = ["dev", "--harness", "opencode-none", "--env", "docker-ubuntu", "--model", "mock"]
+    result = CliRunner().invoke(main, args)
+    assert result.exit_code == 2 and "interactive terminal" in result.output
+
+
+def test_dev_forwards_options(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    seen = _capture_dev_start(monkeypatch)
+    args = [
+        "dev", "--harness", "opencode-none", "--env", "docker-ubuntu", "--model", "mock",
+        "--include", "*.local", "--agent-config-dir", str(tmp_path / "cfg"),
+        "--no-host-config", "--exec", "true",
+    ]  # fmt: skip
+    result = CliRunner().invoke(main, args)
+    assert result.exit_code == 0, result.output
+    assert seen["harness"] == "opencode-none" and seen["environment"] == "docker-ubuntu"
+    assert seen["model"] == "mock" and seen["mount"] == "copy"
+    assert seen["subagent_model"] is None
+    assert seen["includes"] == ["*.local"] and seen["host_config"] is False
+    assert seen["agent_config_dir"] == (tmp_path / "cfg").resolve()
+    assert seen["exec_script"] == "true"
+    assert seen["cwd"] == Path.cwd()
+    # cwd is a tmp dir (autouse fixture): profiles still come from the checkout
+    assert seen["config_dir"] == REPO / "config"
+
+
+def test_dev_explicit_config_dir(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    seen = _capture_dev_start(monkeypatch)
+    args = ["dev", "--harness", "h", "--env", "e", "--model", "m", "--exec", "true"]
+    result = invoke(*args)  # passes --config-dir explicitly
+    assert result.exit_code == 0, result.output
+    assert seen["config_dir"] == CONFIG.resolve()
+
+
+def test_dev_subcommand_rejects_session_options() -> None:
+    result = CliRunner().invoke(main, ["dev", "--harness", "x", "list"])
+    assert result.exit_code == 2 and "subcommands" in result.output
+
+
+def test_dev_list_and_unknown_apply(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    from agenteval import constants
+
+    (tmp_path / "config").mkdir()
+    (tmp_path / "pyproject.toml").write_text("")
+    monkeypatch.setattr(constants, "checkout_root", lambda: tmp_path)
+    result = CliRunner().invoke(main, ["dev", "list"])
+    assert result.exit_code == 0 and "No dev sessions" in result.output
+    result = CliRunner().invoke(main, ["dev", "apply", "nope"])
+    assert result.exit_code == 1 and "no dev session 'nope'" in result.output

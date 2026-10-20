@@ -53,7 +53,7 @@ from inspect_ai.solver import Generate, Solver, TaskState, solver
 from inspect_ai.util import SandboxEnvironment, sandbox
 
 from agenteval import constants
-from agenteval.config import InnerSandbox, MatrixCell
+from agenteval.config import EnvironmentProfile, InnerSandbox, MatrixCell
 
 ENV_ALLOWLIST: tuple[str, ...] = (
     "PATH",
@@ -162,8 +162,14 @@ def _lines(values: Iterable[str]) -> str:
     return shlex.quote("\n".join(values))
 
 
-def render_sandbox_exec(inner: InnerSandbox, *, agent_home: str, workspace: str) -> str:
-    """Render the ``sandbox-exec`` script for an inner-sandbox profile."""
+def render_sandbox_exec(
+    inner: InnerSandbox, *, agent_home: str, workspace: str, quiet_relays: bool = False
+) -> str:
+    """Render the ``sandbox-exec`` script for an inner-sandbox profile.
+
+    ``quiet_relays`` drops the model-proxy relays' stderr (per-connection socat errors),
+    which would otherwise print into an interactive CLI (``agenteval dev``).
+    """
     profile = json.dumps(inner.model_dump(), sort_keys=True)
     if inner.type == "none":
         return render_template("sandbox-exec-none.sh", {"PROFILE": profile})
@@ -192,6 +198,7 @@ def render_sandbox_exec(inner: InnerSandbox, *, agent_home: str, workspace: str)
             "PROXY_DIR": shlex.quote(PROXY_DIR),
             "ROOT_CAPS": _lines(f"{name}:{bit}" for name, bit in ROOT_CAPS.items()),
             "BWRAP_GROUP": shlex.quote(constants.BWRAP_GROUP),
+            "RELAY_STDERR": " 2>/dev/null" if quiet_relays else "",
         },
     )
 
@@ -274,24 +281,37 @@ def install_inner_sandbox(cell: MatrixCell, *, verify_user: str | None = None) -
     """
     inner = cell.harness.inner_sandbox
     environment = cell.environment
-    run_user = verify_user or environment.agent_user
 
     async def solve(state: TaskState, generate: Generate) -> TaskState:
-        sbox = sandbox()
-        home = await user_home(sbox, environment.agent_user)
-        script = render_sandbox_exec(inner, agent_home=home, workspace=environment.workspace)
-        await install_root_file(sbox, constants.SANDBOX_EXEC, script, "0755")
-        if inner.type == "bwrap":
-            await grant_bwrap(sbox, run_user)
-        if verify_user is not None:
-            check = await sbox.exec(
-                [constants.SANDBOX_EXEC, "true"], user=verify_user, cwd=environment.workspace
-            )
-            if not check.success:
-                raise RuntimeError(
-                    f"inner sandbox '{inner.type}' failed to start as user '{verify_user}' "
-                    f"(exit {check.returncode}): {check.stderr.strip()}"
-                )
+        await install_sandbox_exec(sandbox(), inner, environment, verify_user=verify_user)
         return state
 
     return solve
+
+
+async def install_sandbox_exec(
+    sbox: SandboxEnvironment,
+    inner: InnerSandbox,
+    environment: EnvironmentProfile,
+    *,
+    verify_user: str | None = None,
+    quiet_relays: bool = False,
+) -> None:
+    """Install ``constants.SANDBOX_EXEC`` (see ``install_inner_sandbox``)."""
+    run_user = verify_user or environment.agent_user
+    home = await user_home(sbox, environment.agent_user)
+    script = render_sandbox_exec(
+        inner, agent_home=home, workspace=environment.workspace, quiet_relays=quiet_relays
+    )
+    await install_root_file(sbox, constants.SANDBOX_EXEC, script, "0755")
+    if inner.type == "bwrap":
+        await grant_bwrap(sbox, run_user)
+    if verify_user is not None:
+        check = await sbox.exec(
+            [constants.SANDBOX_EXEC, "true"], user=verify_user, cwd=environment.workspace
+        )
+        if not check.success:
+            raise RuntimeError(
+                f"inner sandbox '{inner.type}' failed to start as user '{verify_user}' "
+                f"(exit {check.returncode}): {check.stderr.strip()}"
+            )

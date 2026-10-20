@@ -16,7 +16,7 @@ from typing import Any
 
 from inspect_ai.agent import Agent, as_solver
 from inspect_ai.solver import Generate, Solver, TaskState, solver
-from inspect_ai.util import sandbox
+from inspect_ai.util import SandboxEnvironment, sandbox
 from inspect_swe import opencode
 from inspect_swe._opencode.agentbinary import ensure_opencode_setup
 
@@ -99,29 +99,40 @@ def install_agent(cell: MatrixCell, user: str | None = None) -> Solver:
     version = cell.harness.version
 
     async def solve(state: TaskState, generate: Generate) -> TaskState:
-        sbox = sandbox()
-        binary, _ = await ensure_opencode_setup(sbox, version, run_user)
-        if binary == OPENCODE_WRAPPER:
-            # "auto"/"sandbox" versions resolve via `which`; accept our own wrapper
-            # (re-run), refuse to wrap a real binary in place.
-            current = await sbox.read_file(OPENCODE_WRAPPER)
-            if WRAPPER_MARKER not in current:
-                raise RuntimeError(
-                    f"opencode is installed at {OPENCODE_WRAPPER}; agenteval needs that path "
-                    "for its sandbox wrapper. Pin a version in the harness profile instead."
-                )
-        else:
-            await install_root_file(sbox, OPENCODE_WRAPPER, render_wrapper(binary), "0755")
-
-        found = await sbox.exec(["bash", "-c", "command -v opencode"], user=run_user)
-        if not found.success or found.stdout.strip() != OPENCODE_WRAPPER:
-            raise RuntimeError(
-                f"`command -v opencode` as '{run_user}' resolves to "
-                f"{found.stdout.strip() or '<nothing>'}, expected {OPENCODE_WRAPPER}"
-            )
+        await install_opencode(sandbox(), version, run_user)
         return state
 
     return solve
+
+
+async def install_opencode(
+    sbox: SandboxEnvironment, version: str, run_user: str
+) -> tuple[str, list[str]]:
+    """Install OpenCode and its wrapper (see ``install_agent``).
+
+    Returns the binary inspect_swe resolved (the real binary for pinned versions)
+    and the dependency bin directories (node, ripgrep).
+    """
+    binary, dep_dirs = await ensure_opencode_setup(sbox, version, run_user)
+    if binary == OPENCODE_WRAPPER:
+        # "auto"/"sandbox" versions resolve via `which`; accept our own wrapper
+        # (re-run), refuse to wrap a real binary in place.
+        current = await sbox.read_file(OPENCODE_WRAPPER)
+        if WRAPPER_MARKER not in current:
+            raise RuntimeError(
+                f"opencode is installed at {OPENCODE_WRAPPER}; agenteval needs that path "
+                "for its sandbox wrapper. Pin a version in the harness profile instead."
+            )
+    else:
+        await install_root_file(sbox, OPENCODE_WRAPPER, render_wrapper(binary), "0755")
+
+    found = await sbox.exec(["bash", "-c", "command -v opencode"], user=run_user)
+    if not found.success or found.stdout.strip() != OPENCODE_WRAPPER:
+        raise RuntimeError(
+            f"`command -v opencode` as '{run_user}' resolves to "
+            f"{found.stdout.strip() or '<nothing>'}, expected {OPENCODE_WRAPPER}"
+        )
+    return binary, list(dep_dirs)
 
 
 @solver

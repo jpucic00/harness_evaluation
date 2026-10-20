@@ -21,6 +21,18 @@ def _config_errors() -> Iterator[None]:
         raise click.ClickException(str(ex)) from ex
 
 
+@contextmanager
+def _dev_errors() -> Iterator[None]:
+    """``agenteval dev`` errors the user can act on, as messages instead of tracebacks."""
+    from agenteval.constants import CheckoutError
+    from agenteval.dev.repo import RepoError
+
+    try:
+        yield
+    except (ConfigError, CheckoutError, RepoError, FileNotFoundError) as ex:
+        raise click.ClickException(str(ex)) from ex
+
+
 @click.group(context_settings={"help_option_names": ["-h", "--help"]})
 @click.option(
     "--config-dir",
@@ -219,6 +231,156 @@ def report_serve(port: int, report_dir: Path) -> None:
         pass
     finally:
         server.server_close()
+
+
+# --------------------------------------------------------------------------- dev
+
+_DEV_START_OPTIONS = (
+    "harness",
+    "environment",
+    "model",
+    "subagent_model",
+    "includes",
+    "agent_config_dir",
+    "no_host_config",
+    "exec_script",
+)
+
+
+def _dev_config_dir(ctx: click.Context, config_dir: Path) -> Path:
+    """Profiles of the agenteval checkout unless --config-dir / AGENTEVAL_CONFIG_DIR is set.
+
+    ``agenteval dev`` runs from the user's repo, whose own ``config/`` is unrelated.
+    """
+    from agenteval import constants
+
+    source = ctx.find_root().get_parameter_source("config_dir")
+    if source in (click.core.ParameterSource.DEFAULT, click.core.ParameterSource.DEFAULT_MAP):
+        return constants.checkout_root() / DEFAULT_CONFIG_DIR
+    return config_dir.resolve()
+
+
+@main.group(invoke_without_command=True)
+@click.option("--harness", metavar="NAME", help="Harness profile (e.g. opencode-bwrap).")
+@click.option("--env", "environment", metavar="NAME", help="Environment profile.")
+@click.option("--model", metavar="NAME", help="Model profile.")
+@click.option(
+    "--subagent-model",
+    metavar="NAME",
+    help="Model profile for the harness's subagents/workers (default: the harness profile's).",
+)
+@click.option(
+    "--mount",
+    type=click.Choice(["copy", "live"]),
+    default="copy",
+    show_default=True,
+    help="copy: the repo is copied in and changes come back for review. "
+    "live: the repo is mounted and the agent writes it directly.",
+)
+@click.option(
+    "--include",
+    "includes",
+    multiple=True,
+    metavar="GLOB",
+    help="Also copy in gitignored files matching GLOB (copy mode; repeatable).",
+)
+@click.option(
+    "--agent-config-dir",
+    type=click.Path(file_okay=False, path_type=Path),
+    help="CLI config to copy in and update (default: $CLAUDE_CONFIG_DIR or ~/.claude; "
+    "$XDG_CONFIG_HOME/opencode or ~/.config/opencode).",
+)
+@click.option(
+    "--no-host-config",
+    is_flag=True,
+    help="Start with an empty CLI config and bring no CLI config back (repo changes are "
+    "still reviewed).",
+)
+@click.option("--exec", "exec_script", hidden=True, help="Test hook: run a script, no TTY.")
+@click.pass_context
+def dev(
+    ctx: click.Context,
+    harness: str | None,
+    environment: str | None,
+    model: str | None,
+    subagent_model: str | None,
+    mount: str,
+    includes: tuple[str, ...],
+    agent_config_dir: Path | None,
+    no_host_config: bool,
+    exec_script: str | None,
+) -> None:
+    """Work interactively in a harness inside an environment, on the current repo.
+
+    Starts one environment with the harness CLI and model, attaches this terminal to the
+    CLI, and when it exits brings the changes back for review. Subcommands: `apply`
+    reviews a deferred session, `list` shows sessions.
+    """
+    import sys
+
+    from agenteval.dev import commands
+    from agenteval.dev.review import terminal_io
+
+    given = {
+        "harness": harness,
+        "environment": environment,
+        "model": model,
+        "subagent_model": subagent_model,
+        "includes": includes,
+        "agent_config_dir": agent_config_dir,
+        "no_host_config": no_host_config,
+        "exec_script": exec_script,
+    }
+    if ctx.invoked_subcommand is not None:
+        used = [name for name in _DEV_START_OPTIONS if given[name]]
+        if used or mount != "copy":
+            raise click.UsageError("session options go with `agenteval dev`, not its subcommands")
+        return
+    if not (harness and environment and model):
+        raise click.UsageError("--harness, --env and --model are required")
+    if exec_script is None and not (sys.stdin.isatty() and sys.stdout.isatty()):
+        raise click.UsageError("agenteval dev needs an interactive terminal")
+    with _dev_errors():
+        code = commands.start_session(
+            config_dir=_dev_config_dir(ctx, ctx.obj),
+            cwd=Path.cwd(),
+            harness=harness,
+            environment=environment,
+            model=model,
+            subagent_model=subagent_model,
+            mount="live" if mount == "live" else "copy",
+            includes=list(includes),
+            agent_config_dir=agent_config_dir.expanduser().resolve() if agent_config_dir else None,
+            host_config=not no_host_config,
+            io=terminal_io(),
+            exec_script=exec_script,
+        )
+    raise SystemExit(code)
+
+
+@dev.command("apply")
+@click.argument("session_id")
+@click.option("--config", "config_only", is_flag=True, help="Only the CLI config and memory.")
+def dev_apply(session_id: str, config_only: bool) -> None:
+    """Review the pending changes of an earlier dev session."""
+    from agenteval.dev import commands
+    from agenteval.dev.review import terminal_io
+
+    with _dev_errors():
+        try:
+            code = commands.apply_session(session_id, config_only=config_only, io=terminal_io())
+        except ValueError as ex:  # invalid session id
+            raise click.ClickException(str(ex)) from ex
+    raise SystemExit(code)
+
+
+@dev.command("list")
+def dev_list() -> None:
+    """List dev sessions (newest first)."""
+    from agenteval.dev import commands
+
+    with _dev_errors():
+        click.echo(commands.format_sessions())
 
 
 # --------------------------------------------------------------------------- view

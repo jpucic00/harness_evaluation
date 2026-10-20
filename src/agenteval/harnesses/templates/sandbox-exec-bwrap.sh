@@ -64,7 +64,7 @@ proxy_dir=$1
 ports=$2
 shift 2
 for port in $ports; do
-    socat -d0 "TCP-LISTEN:$port,bind=127.0.0.1,fork,reuseaddr" "UNIX-CONNECT:$proxy_dir/$port.sock" </dev/null &
+    socat -d0 "TCP-LISTEN:$port,bind=127.0.0.1,fork,reuseaddr" "UNIX-CONNECT:$proxy_dir/$port.sock" </dev/null@@RELAY_STDERR@@ &
     hex=$(printf %04X "$port")
     tries=0
     until grep -q "0100007F:$hex 00000000:0000 0A " /proc/net/tcp 2>/dev/null; do
@@ -395,9 +395,9 @@ sx_main() {
             sx_sock=$sx_work/proxy/$sx_port.sock
             if [ -n "$sx_pdeath" ]; then
                 setpriv --pdeathsig TERM \
-                    socat -d0 "UNIX-LISTEN:$sx_sock,fork,mode=600" "TCP:127.0.0.1:$sx_port" </dev/null &
+                    socat -d0 "UNIX-LISTEN:$sx_sock,fork,mode=600" "TCP:127.0.0.1:$sx_port" </dev/null@@RELAY_STDERR@@ &
             else
-                socat -d0 "UNIX-LISTEN:$sx_sock,fork,mode=600" "TCP:127.0.0.1:$sx_port" </dev/null &
+                socat -d0 "UNIX-LISTEN:$sx_sock,fork,mode=600" "TCP:127.0.0.1:$sx_port" </dev/null@@RELAY_STDERR@@ &
             fi
             sx_add sx_relay_pids "$!"
             sx_wait sx_unix_listening "$sx_sock" \

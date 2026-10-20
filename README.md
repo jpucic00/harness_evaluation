@@ -7,6 +7,10 @@ sandbox, which VM or container, and which model. Each setup is measured on two t
   privileges), whether it follows prompt injections, and which boundaries it actually crosses.
 - **Economics**: whether it solves the task, and what that costs in tokens, money and time.
 
+You can also work in one of these setups yourself: `agenteval dev` attaches your terminal to
+the agent CLI running in a fresh container or VM, on the repo you start it from. See
+[Quickstart 3](#quickstart-3-an-interactive-session-agenteval-dev).
+
 It is built on [Inspect AI](https://inspect.aisi.org.uk/) (the open-source eval framework from
 the UK AI Security Institute), [inspect_swe](https://github.com/meridianlabs-ai/inspect_swe)
 (runs agent CLIs such as OpenCode under Inspect) and
@@ -23,7 +27,7 @@ A run is the cross product of four independent axes. Each combination becomes on
 
 | Axis | Question it answers | Defined in | Shipped profiles |
 | --- | --- | --- | --- |
-| **Model** | Which LLM answers the agent? | [config/models/](config/models/) | `mock` (offline, free), `qwen38-27b` (Qwen 3.8 via OpenRouter), `claude-sonnet-api` (Anthropic API), `claude-sonnet-bedrock` (Amazon Bedrock), `gateway-gpt-oss-120b` / `gateway-devstral-2512` / `gateway-qwen` (gateway) |
+| **Model** | Which LLM answers the agent? | [config/models/](config/models/) | `mock` (offline, free), `mock-worker` (offline mock for subagents), `qwen38-27b` (Qwen 3.8 via OpenRouter), `claude-sonnet-api` (Anthropic API), `claude-sonnet-bedrock` (Amazon Bedrock), `gateway-gpt-oss-120b` / `gateway-devstral-2512` / `gateway-qwen` (gateway) |
 | **Harness** | Which agent CLI and version runs, and inside which inner sandbox? | [config/harnesses/](config/harnesses/) | `opencode-*`, `claude-code-*` (Claude Code), `claude-code-subagents-*` (Claude Code + its own subagents on a second model), `claude-code-opencode-*` (Claude Code orchestrating OpenCode workers on a second model); each as `-none` (no inner sandbox) and `-bwrap` (bubblewrap) |
 | **Environment** | Where does the agent run? Every sample gets a fresh one. | [config/environments/](config/environments/) | `docker-ubuntu` (local validation), `tart-ubuntu` (Linux VM on macOS) |
 | **Suite** | What is measured? | [src/agenteval/suites/](src/agenteval/suites/) | `containment`, `capability`, `injection` |
@@ -101,10 +105,44 @@ the host; the VM never sees it. Read the data-egress section in
 [docs/setup.md](docs/setup.md#data-egress) before running on anything other than the built-in
 tasks.
 
-Status: the Docker path has been run end to end. Tart was not available on the development
-machine, so the Tart provider has only been tested with fake `tart`/`ssh` scripts. Treat the
-first real Tart run as a validation run. Other open points are listed under
+Status: the Docker path has been run end to end. The Tart provider has run on a real VM
+through `agenteval dev` sessions (copy and live mode, both CLIs), but no eval suite has run on
+Tart yet. Treat the first Tart eval run as a validation run. Other open points are listed under
 [Known limitations](docs/security-tests.md#known-limitations).
+
+## Quickstart 3: an interactive session (`agenteval dev`)
+
+`agenteval dev` lets you work in a setup instead of measuring it. It starts one environment
+with one harness and one model, attaches your terminal to the harness CLI inside it, and
+works on the repo you run it from. The environment is clean: no fake secrets, decoys or
+monitor. When you exit the CLI, you review what the session wants to bring back to your
+machine, and only what you approve is applied. With `--mount live` the agent writes your
+repo directly instead.
+
+It runs from your own project, so install agenteval once as an editable tool (or use
+`uv run --project <checkout> agenteval dev ...`). It needs an interactive terminal and, for
+`docker-ubuntu`, the image from Quickstart 1:
+
+```sh
+uv tool install --editable "$PWD"   # once, from the repository root
+cd ~/src/my-project
+agenteval dev --harness opencode-bwrap --env docker-ubuntu --model mock         # offline, free
+agenteval dev --harness opencode-bwrap --env docker-ubuntu --model qwen38-27b   # OpenRouter key
+agenteval dev list                  # sessions, newest first, with their status
+agenteval dev apply SESSION_ID      # review a session you deferred
+```
+
+API keys come from this checkout's `.env` or your shell, never from your project's `.env`.
+The `claude-code-subagents-*` and `claude-code-opencode-*` harnesses also take
+`--subagent-model` (for example `mock-worker` or `qwen38-27b`); without it they use
+`gateway-qwen`, which needs the `GATEWAY_*` variables. A session's Inspect log goes to
+`logs/dev/<session>/` in this checkout; its tokens and cost are shown before the review.
+With a real model, code from your repo goes to that model's provider: read the
+[data-egress section](docs/setup.md#data-egress) first.
+
+[docs/dev.md](docs/dev.md) explains copy and live mode, what of your CLI config and memory
+goes in and comes back, and the review. [docs/dev-features.md](docs/dev-features.md) lists
+the features and how to start each harness.
 
 ## Viewing results
 
@@ -132,8 +170,9 @@ number in it.
 | `agenteval doctor [--env NAME]` | Checks Python, uv, package versions, Docker/Tart, images, SSH key, required env vars (from the shell or `.env`), the macOS DHCP lease time (Tart) and, on Linux Docker hosts, the user-namespace restriction that breaks bwrap. Variable values are never printed. Problems with `--env NAME` are failures; everything else is a warning. |
 | `agenteval profiles` | Lists model, harness, environment and run profiles. |
 | `agenteval env build NAME [--force]` | Builds the Docker image or Tart VM image for an environment. `--force` rebuilds from scratch. |
-| `agenteval env cleanup` | Deletes leftover per-sample Tart VMs and agenteval Docker compose projects. |
+| `agenteval env cleanup` | Deletes leftover per-sample Tart VMs and agenteval Docker compose projects, including those still in use (a running run or `agenteval dev` session). |
 | `agenteval run RUN_FILE [options]` | Runs a run file, given as a path or as a name under `config/runs/`. |
+| `agenteval dev --harness H --env E --model M [options]` | Starts one environment with a harness and model and attaches your terminal to the harness CLI, working on the repo you run it from; changes come back through a review. `dev apply ID` reviews a deferred session, `dev list` lists sessions. See [docs/dev.md](docs/dev.md). |
 | `agenteval report build LOG_DIR [--out DIR] [--title T]` | Builds a report from a log directory. |
 | `agenteval report open [RUN_ID]` / `report serve [--port N]` | Opens or serves reports. All three `report` commands take `--report-dir` (default `reports`). |
 | `agenteval view [RUN_ID] [--log-dir DIR]` | Starts `inspect view` for one run's logs. |
@@ -148,7 +187,9 @@ uv run agenteval run opencode-qwen-tart --harness opencode-bwrap --suite contain
 
 The global `--config-dir DIR` option (or `AGENTEVAL_CONFIG_DIR`) points at another profile
 directory. `config/`, `logs/`, `reports/` and `.agenteval/` are resolved relative to the current
-directory, so run from the repository root.
+directory, so run from the repository root. `agenteval dev` is the exception: it runs from
+your own project and uses the checkout's folders (a `--config-dir` or `AGENTEVAL_CONFIG_DIR`
+you set is still resolved against the current directory).
 
 ## Repository layout
 
@@ -159,16 +200,17 @@ config/
   models/  harnesses/  environments/  runs/    YAML profiles (the four axes + run files)
 src/agenteval/
   cli.py, runner.py          CLI (click) and the logic behind it
+  dev/                       agenteval dev: session task, repo transport, CLI config sync, review
   config.py, constants.py    profile schema; in-sandbox paths and names
   _registry.py               Inspect entry point (registers the "tart" sandbox)
   environments/              Docker compose generation, Tart sandbox provider, provisioning
   harnesses/                 OpenCode and Claude Code install + run, inner sandbox wrapper (sandbox-exec)
-  sandbox_scripts/           probe runner, monitor, collector, egress policy, case runner (run inside the env)
+  sandbox_scripts/           probe runner, monitor, collector, egress policy, case runner, dev repo transport, pty relay and reasoning relay (run inside the env)
   suites/                    containment, capability, injection (CodeIPI + local cases), monitors: load cases/
   report/                    log parsing, economics, HTML templates
 tests/                       unit tests (pytest)
-docs/                        setup, architecture, security tests, extending, research notes
-logs/  reports/  .agenteval/ generated: eval logs, HTML reports, compose files named by content hash (gitignored)
+docs/                        setup, dev mode, architecture, security tests, extending, research notes
+logs/  reports/  .agenteval/ generated: eval and dev logs, HTML reports, compose files named by content hash, dev sessions (gitignored)
 ```
 
 ## Documentation
@@ -177,7 +219,9 @@ logs/  reports/  .agenteval/ generated: eval logs, HTML reports, compose files n
 | --- | --- |
 | [cases/README.md](cases/README.md) | **Adding test cases**: capability tasks, containment checks, monitor watch groups, injection cases. Agents: also [AGENTS.md](AGENTS.md). |
 | [docs/setup.md](docs/setup.md) | Setting up a new Mac: uv, Docker, Tart, images, API key, first runs, data egress, troubleshooting. |
-| [docs/architecture.md](docs/architecture.md) | How a sample runs, profiles, suites, monitors, and the report and economics definitions. |
+| [docs/dev.md](docs/dev.md) | **Working interactively** in a harness setup (`agenteval dev`): copy vs live mode, what of your CLI config and memory goes in and comes back, the review. |
+| [docs/dev-features.md](docs/dev-features.md) | Dev mode features and how to start each harness. |
+| [docs/architecture.md](docs/architecture.md) | How a sample runs, profiles, suites, monitors, the report and economics definitions, and how a dev session runs. |
 | [docs/security-tests.md](docs/security-tests.md) | Every containment check, the boundary monitor signals, CodeIPI, how to read the results, and known limitations. |
 | [docs/extending.md](docs/extending.md) | Adding models (e.g. an internal gateway), harnesses, environments, suites and run files. |
 | [docs/evaluation-strategy.md](docs/evaluation-strategy.md) | Research notes: the overall evaluation strategy (draft). |
@@ -186,7 +230,8 @@ logs/  reports/  .agenteval/ generated: eval logs, HTML reports, compose files n
 ## Development
 
 ```sh
-uv run pytest            # unit tests; Docker-marked tests are skipped until the image is built
+uv run pytest            # unit tests; Docker- and Tart-marked tests are skipped until their image is built
 uv run ruff check .
+uv run ruff format --check .
 uv run mypy src
 ```

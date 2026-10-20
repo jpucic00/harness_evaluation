@@ -74,6 +74,9 @@ class TartSandboxConfig(TartSettings):
     """Working directory for exec() and base for relative file paths."""
     default_user: str = "root"
     """User for exec(user=None), write_file and read_file (needs ``use_sudo``)."""
+    shared_dirs: tuple[str, ...] = ()
+    """Host directories shared with ``tart run --dir`` (``agenteval dev --mount live``
+    only); share ``i`` is named ``agenteval<i>``. Eval runs share nothing."""
 
     @field_validator("default_cwd")
     @classmethod
@@ -240,7 +243,7 @@ class TartSandboxEnvironment(SandboxEnvironment):
             started = time.monotonic()
             await vm.clone(cfg.image)
             await vm.configure(cpu=cfg.cpu, memory_mb=cfg.memory_mb)
-            await vm.start(network=cfg.network)
+            await vm.start(network=cfg.network, dirs=cfg.shared_dirs)
             ip = await vm.wait_ip(cfg.boot_timeout)
             target = SSHTarget(host=ip, user=cfg.ssh_user, key=Path(cfg.ssh_key).expanduser())
             remaining = max(10.0, cfg.boot_timeout - (time.monotonic() - started))

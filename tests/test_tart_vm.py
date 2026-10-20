@@ -298,6 +298,17 @@ async def test_softnet_flag(fakes: Fakes) -> None:
     await TartSandboxEnvironment.sample_cleanup("task", config, environments, False)
 
 
+async def test_shared_dirs_flag(fakes: Fakes) -> None:
+    config = fakes.config.model_copy(update={"shared_dirs": ("/Users/me/proj", "/Users/me/b c")})
+    environments = await TartSandboxEnvironment.sample_init("task", config, {})
+    name = environments["default"].as_type(TartSandboxEnvironment).vm_name
+    assert (
+        f"run {name} --no-graphics --dir=agenteval0:/Users/me/proj --dir=agenteval1:/Users/me/b c"
+        in fakes.calls()
+    )
+    await TartSandboxEnvironment.sample_cleanup("task", config, environments, False)
+
+
 async def test_missing_workspace_fails_sample_clearly(fakes: Fakes) -> None:
     config = fakes.config.model_copy(update={"default_cwd": str(fakes.root / "work")})
     with pytest.raises(RuntimeError, match="does not exist in Tart image"):

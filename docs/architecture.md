@@ -69,7 +69,8 @@ Step by step:
    file is never rewritten) with no bind mounts, `network_mode: none` when egress is denied,
    the configured runtime, a memory limit, a process limit (`pids_limit`) and stock Docker
    confinement. Only cells whose harness uses bubblewrap get `bwrap_security_opt` on top (see
-   [Who enforces what](#profiles)).
+   [Who enforces what](#profiles)). The only environment that shares a host folder is an
+   `agenteval dev --mount live` session (see [Dev sessions](#dev-sessions)).
 2. **Root setup** ([suites/common.py](../src/agenteval/suites/common.py), `prepare_sample`):
    uploads the helper scripts to `/opt/agenteval`, generates per-sample canary tokens
    (`AGENTEVAL_CANARY_<16 hex>`), plants fake credentials when `ambient_secrets` is on, plants
@@ -81,14 +82,18 @@ Step by step:
    to the group `agenteval-bwrap`, the only non-root users allowed to run `/usr/bin/bwrap`;
    in `none` cells the user stays outside it and keeps Ubuntu's restriction on unprivileged
    user namespaces. It then installs the pinned OpenCode release through inspect_swe and points
-   `/usr/local/bin/opencode` at `sandbox-exec <real binary>`. The monitor baseline is taken
-   again right before the agent starts, so files written by the installer do not count as
-   violations.
+   `/usr/local/bin/opencode` at `sandbox-exec <real binary>`. Claude Code harnesses get the
+   same with `/usr/local/bin/claude`, plus `~/.claude/settings.json` (the bridge's
+   `apiKeyHelper`) and either the `runner: claude_code` subagent files in
+   `~/.claude/agents/` or, for `runner: opencode`, `/usr/local/bin/opencode-worker`. The
+   monitor baseline is taken again right before the agent starts, so files written by the
+   installer do not count as violations.
 4. **Agent run.** `inspect_swe.opencode(version="sandbox")` starts OpenCode as the
    environment's `agent_user` (default `agent`, no sudo) in the workspace. This includes
    CodeIPI, unless its `agent_user` option says otherwise. OpenCode finds the wrapper through
-   `which opencode`, so it and everything it spawns run inside the inner sandbox. With
-   `ambient_secrets`, the agent's environment also contains canary variables
+   `which opencode`, so it and everything it spawns run inside the inner sandbox. Claude
+   Code harnesses use `inspect_swe.claude_code(version="sandbox")` and `which claude` the
+   same way. With `ambient_secrets`, the agent's environment also contains canary variables
    (`AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `GITHUB_TOKEN`), like a developer shell with
    exported secrets.
 5. **Scoring from outside.** Scorers run outside the inner sandbox, or on the host. They grade
@@ -162,9 +167,9 @@ Who enforces what:
 
 | Boundary | Set by | Mechanism |
 | --- | --- | --- |
-| VM / container | environment profile | Tart VM (Virtualization.framework) or Docker container. A new one per sample, no host folders. Docker keeps stock confinement plus a process limit (`pids_limit`, default 4096); bwrap cells add `bwrap_security_opt`, which weakens the container (trade-off in [setup.md](setup.md#troubleshooting)). |
+| VM / container | environment profile | Tart VM (Virtualization.framework) or Docker container. A new one per sample, no host folders (except `agenteval dev --mount live`). Docker keeps stock confinement plus a process limit (`pids_limit`, default 4096); bwrap cells add `bwrap_security_opt`, which weakens the container (trade-off in [setup.md](setup.md#troubleshooting)). |
 | Outbound network | environment `egress` | `deny`: Docker uses `network_mode: none`. In Tart, an nftables rule rejects new non-loopback connections from the agent's uid with ICMP "admin prohibited", so a policy block is distinguishable from a closed port. Root setup and the SSH session are unaffected. A resolver guard also stops the local DNS resolver (systemd-resolved) from forwarding lookups off the VM, and rejected destinations are recorded. |
-| Inner sandbox | harness `inner_sandbox` | `none`: plain `exec`. `bwrap`: read-only `/`; private `/tmp`, `/dev`, `/proc` and `/run` (host daemons' sockets out of reach); writable workspace and OpenCode state dirs (including `~/.config/opencode`, which OpenCode writes to); hidden secret paths plus Inspect's sandbox-tools dir and `/var/lib/agenteval`; all namespaces unshared and nested user namespaces disabled; environment cleared to an allow-list; only the model bridge reachable. It fails closed. Run as root it prints a warning: root keeps uid 0, so it is a weaker boundary (and a VM root cannot disable nested user namespaces). |
+| Inner sandbox | harness `inner_sandbox` | `none`: plain `exec`. `bwrap`: read-only `/`; private `/tmp`, `/dev`, `/proc` and `/run` (host daemons' sockets out of reach); writable workspace, OpenCode state dirs (including `~/.config/opencode`, which OpenCode writes to) and `~/.claude`; hidden secret paths plus Inspect's sandbox-tools dir and `/var/lib/agenteval`; all namespaces unshared and nested user namespaces disabled; environment cleared to an allow-list; only the model bridge reachable. It fails closed. Run as root it prints a warning: root keeps uid 0, so it is a weaker boundary (and a VM root cannot disable nested user namespaces). |
 | Privileges | provisioning | The `agent` user has no sudo, a locked password and no admin groups. `/usr/bin/bwrap` is `root:agenteval-bwrap` mode 0750; the agent joins that group only in bwrap cells. Samples run setup and the monitor as root through the provider's own user (`admin` + sudo in Tart). |
 
 What these boundaries do not (yet) guarantee is listed under
@@ -275,16 +280,107 @@ Each sample in the drill-down lists its score explanations, monitor evidence, er
 hit, and the `inspect view` command for its full transcript (run it as `uv run inspect view ...`,
 or use `uv run agenteval view <run-id>`).
 
+## Dev sessions
+
+`agenteval dev` ([dev/](../src/agenteval/dev/), user guide in [dev.md](dev.md)) reuses the
+eval machinery for one interactive session. It builds an Inspect `Task` directly (no run
+file, no `MatrixCell`, no scorers) with one sample and runs it with `eval(display="none")`
+from the checkout directory. The solver ([dev/task.py](../src/agenteval/dev/task.py)):
+
+1. Same sandbox spec as an eval cell (plus a bind mount / `tart run --dir` share in live
+   mode, the only case where a host folder is shared). Setup is a subset of
+   `prepare_sample`: directories, `egress.sh` and the egress policy, no canaries (ambient
+   secrets are off), decoy, collector or monitor. `ptyrelay.py`, `dev_repo.py` and
+   `think_shim.py` are installed next to `egress.sh`.
+2. `install_sandbox_exec` and the harness's install function, without seeding the
+   user's `~/.claude` (`install_claude(seed_settings=False, write_subagents=False)`).
+   `sandbox-exec` is the eval one, except that the socat relays' stderr is dropped
+   (`quiet_relays=True`) so it cannot print into the CLI, and the host's `COLORTERM`,
+   `TERM_PROGRAM` and `TERM_PROGRAM_VERSION` are passed through. The launcher starts the
+   real binary, so a harness version that resolves to the `/usr/local/bin` wrapper is
+   refused.
+3. Copy mode: the host snapshot bundle is fetched into the environment's `workspace`
+   (`/workspace` by default) by
+   [sandbox_scripts/dev_repo.py](../src/agenteval/sandbox_scripts/dev_repo.py) as the agent
+   user; the env's base tree hash must equal the host's. In both modes the sanitized CLI
+   config is unpacked into the agent's home (in copy mode, Claude Code's gitignored
+   `CLAUDE.local.md` into the workspace) unless `--no-host-config` is given. The
+   host's git `user.name` / `user.email` are set either way. For Claude Code,
+   `~/.claude/.claude.json` is seeded (onboarding done, workspace trusted) and the
+   root-owned `/opt/agenteval/dev/claude-settings.json` holds the `apiKeyHelper` for the
+   bridge.
+4. `sandbox_agent_bridge` (port 13131; it keeps re-polling for a day, since the host may
+   sleep) stays open while the host terminal is attached
+   (`docker exec -it` / `ssh -t`, spawned with `anyio.open_process` so the event loop keeps
+   serving the bridge). The bridge's web search is on only when the environment's
+   `egress` is `allow`. A per-session launcher (`/opt/agenteval/dev-launch`) holds the
+   bridge environment and execs `sandbox-exec [python3 ptyrelay.py --] <cli>`. The relay
+   is needed under bwrap: `--new-session` leaves the CLI without a controlling terminal,
+   so it would get no resize signal; the relay gives it its own pty inside the sandbox and
+   copies the window size every 250 ms. Claude Code gets `--settings`, the harness's
+   `runner: claude_code` subagents as `--agents` and its `system_prompt` and delegation
+   note as `--append-system-prompt`; subagent routing is the same as in an eval cell, and
+   auto-memory stays on. OpenCode gets `--auto --model <provider/model>` (the harness
+   `agent_model` or the model's `agent_models.opencode`); the harness `system_prompt` is
+   not applied. OpenCode's base URL points at `think_shim.py` (port 13132), which runs as
+   the agent user outside the inner sandbox (relayed in under bwrap like the bridge port)
+   and forwards to the bridge. The bridge returns reasoning as `<think>` text in the
+   reply; the shim moves it into the `reasoning` / `reasoning_details` fields OpenCode
+   renders as its thinking block, and OpenCode sends those back with its history, which
+   the bridge understands. Eval runs do not use it. When the CLI exits, every process of the agent user is killed. After a
+   non-zero exit the user can resume the conversation (the launcher again, with
+   `--continue`).
+5. Export as the agent user (`dev_repo.py export`, a tar of the allow-listed config
+   paths), pulled with `docker cp` / `ssh cat` and validated on the host (bundle fsck,
+   tar member filter) before the environment is deleted. Each pulled file must be a
+   regular file of at most 2 GiB. If the export or the host-side processing fails, the
+   environment stays up and the user can retry, open a shell in it or abandon it; only
+   abandoning deletes it.
+
+**Live mode** (`--mount live`) shares the repo root, plus any git directory outside it
+(linked worktree, submodule), at the same absolute path; a folder that contains the
+agenteval checkout is refused. Docker gets bind mounts, and the compose file sets
+`x-inspect_docker_sandbox: {unsafe_allow_writable_host_mounts: true}`, the opt-in Inspect
+requires for writable host mounts. Tart starts the VM with `--dir=agenteval<i>:<path>`;
+the solver mounts the virtiofs share (`com.apple.virtio-fs.automount`) at
+`/mnt/agenteval-shares` as root and bind-mounts each share at its host path. With either
+provider, the agent user then test-writes each mount; if that fails and the folder has a
+non-root owner, the agent's uid is changed to the owner's (`usermod -o -u`), otherwise the
+session stops. Under bwrap the workspace is the host path and the outside git directories
+are extra writable paths. There is no snapshot and no repo review: `live_hashes` records the git files the
+host runs or reads (`config`, `hooks/`, `info/`, ...) at the start, and `live_report`
+lists what changed.
+
+Review and apply are host-only ([dev/review.py](../src/agenteval/dev/review.py),
+[dev/repo.py](../src/agenteval/dev/repo.py), [dev/userconfig.py](../src/agenteval/dev/userconfig.py)).
+Nothing of agenteval's (bridge URL, placeholder key) is written into the user's config
+files: Claude Code gets it via `--settings` and environment variables, OpenCode via
+`OPENCODE_CONFIG_CONTENT` and environment variables.
+
+**Where a session is kept.** Session files live in the checkout, not in the user's repo:
+the record and what came back in `.agenteval/sessions/<id>/` (mode 0700: `session.json`,
+the snapshot sent in as `in.bundle` and `meta.json`, `commits.bundle`, `worktree.patch`,
+the CLI config sent and returned in `config.tar`, `config-return.tar` and `config/`, and
+`conflicts/`), the Inspect log in `logs/dev/<id>/` (task
+`dev--<harness>--<env>--<model>`, tag `agenteval-dev`, profiles in
+`metadata["agenteval_dev"]`), and the Docker compose file in `.agenteval/compose/`, where
+`agenteval env cleanup` looks. In copy mode the snapshot and the agent's commits are
+refs under `refs/agenteval/<id>/` of the user's repo, never in `refs/heads` (a folder that
+is not a repo uses `shadow.git` in the session directory instead). Once the session is
+applied, discarded or failed, only its `heads/*` and `vm-head` refs stay in the user's
+repo.
+
 ## Code map
 
 | Path | Role |
 | --- | --- |
 | [config.py](../src/agenteval/config.py) | Pydantic profile schema, loading, `expand_matrix`, `missing_env`. |
-| [constants.py](../src/agenteval/constants.py) | In-environment paths (`/opt/agenteval`, `/var/lib/agenteval`, ...), collector address, store keys, canary prefix. |
+| [constants.py](../src/agenteval/constants.py) | In-environment paths (`/opt/agenteval`, `/var/lib/agenteval`, ...), collector address, store keys, canary prefix; `checkout_root()`, the checkout `agenteval dev` takes its profiles, `.env`, logs and sessions from. |
 | [runner.py](../src/agenteval/runner.py), [cli.py](../src/agenteval/cli.py) | CLI logic (testable without click) and the click wrapper. |
 | [_registry.py](../src/agenteval/_registry.py) | Inspect entry point; importing it registers the `tart` sandbox. |
-| [environments/](../src/agenteval/environments/) | `sandbox_spec(env, inner_sandbox=...)`, Docker compose and image build, Tart provider (`tart/sandbox.py`, `tart/ssh.py`, `tart/image.py`), shared `provision/`. |
-| [harnesses/](../src/agenteval/harnesses/) | `harness_solvers(cell)`, OpenCode install/run, `sandbox-exec` templates. |
-| [sandbox_scripts/](../src/agenteval/sandbox_scripts/) | Stdlib-only scripts uploaded into each environment: `probe.py` (runner for the check files in `cases/containment/`), `monitor.py`, `collector.py`, `egress.sh`, `case_runner.py`. |
+| [environments/](../src/agenteval/environments/) | `sandbox_spec(env, inner_sandbox=..., mounts=...)` (`mounts`: dev live mode only), Docker compose and image build, Tart provider (`tart/sandbox.py`, `tart/ssh.py`, `tart/image.py`), shared `provision/`. |
+| [harnesses/](../src/agenteval/harnesses/) | `harness_solvers(cell)`, OpenCode and Claude Code install/run (`opencode.py`, `claude_code.py`), `sandbox-exec` templates, the dev launcher template `dev-launch.sh`. |
+| [sandbox_scripts/](../src/agenteval/sandbox_scripts/) | Stdlib-only scripts uploaded into each environment: `probe.py` (runner for the check files in `cases/containment/`), `monitor.py`, `collector.py`, `egress.sh`, `case_runner.py`; for dev sessions `dev_repo.py` (repo import/export), `ptyrelay.py` and `think_shim.py` (reasoning relay for OpenCode). |
+| [dev/](../src/agenteval/dev/) | `agenteval dev`: `commands.py` (start/apply/list), `task.py` (session solver, launcher, docker/tart access), `repo.py` (snapshot, fetch, per-file 3-way apply, fast-forward), `userconfig.py` (CLI config + memory staging, sanitizing, merge back), `review.py` (summary, diffs, prompts), `session.py` (records under `.agenteval/sessions/`). |
 | [suites/](../src/agenteval/suites/) | `SUITES` registry and `build_task`, sample setup (`common.py`), the three suites, `monitors.py`. |
 | [report/](../src/agenteval/report/) | `data.py` (logs -> records -> views), `economics.py` (pure arithmetic), `build.py` + Jinja templates. |

@@ -1,7 +1,7 @@
 # Setting up a host machine
 
 This guide sets up a new Mac from scratch. Run every `agenteval` command from the repository
-root.
+root, except `agenteval dev`, which runs from the project you work on (see [dev.md](dev.md)).
 
 1. [Requirements](#1-requirements)
 2. [uv and Python 3.12](#2-uv-and-python-312)
@@ -22,7 +22,7 @@ root.
 | Recent macOS | everything | Developed on macOS 26. Check Tart's README for its minimum version. |
 | RAM | parallel samples | `tart-ubuntu` boots 2 VMs at once with 4 GB each, and `docker-ubuntu` runs 4 containers. 16 GB or more is comfortable. |
 | Disk | images | Allow tens of GB for the Tart base image, the Docker image and logs. Tart clones are copy-on-write, so per-sample VMs are cheap. |
-| Command line tools | `git`, `ssh`, `ssh-keygen`, `shasum`, `curl`, `tar` | All ship with macOS. Install the Xcode Command Line Tools if `git` asks for them. |
+| Command line tools | `git`, `ssh`, `ssh-keygen`, `shasum`, `curl`, `tar` | All ship with macOS. Install the Xcode Command Line Tools if `git` asks for them. `agenteval dev` copies your repo byte for byte only with git 2.42 or newer. |
 | uv, Python 3.12 | the project | See step 2. |
 | Docker Desktop | `docker-ubuntu` environment | See step 4. |
 | Tart 2.41.1 | `tart-ubuntu` environment | See step 5. |
@@ -47,12 +47,23 @@ git clone <repository-url> harness_evaluation
 cd harness_evaluation
 uv sync --python 3.12    # creates .venv with the pinned packages, including dev tools
 uv run agenteval --help
-uv run pytest -q         # optional: about 470 unit tests, no network needed; Docker-marked ones skip until the image is built
+uv run pytest -q         # optional: about 870 unit tests, no network needed; Docker- and Tart-marked ones skip until their image is built, and the dev-mode ones then download the agent CLIs once
 ```
 
 `uv sync` installs the exact versions in `uv.lock`: `inspect-ai` 0.3.281, `inspect-swe` 0.2.71,
 `inspect-evals` 0.25.0 and `openai` 3.29.0, which Inspect's OpenRouter provider needs. It also
 registers agenteval's `tart` sandbox with Inspect through a package entry point.
+
+To run `agenteval dev` from your other projects, install the checkout once as an editable
+tool:
+
+```sh
+uv tool install --editable .    # then `agenteval dev` works from any folder
+```
+
+Without it, use `uv run --project <checkout> agenteval dev ...`. A non-editable install does
+not work: `agenteval dev` finds the checkout (profiles, `.env`, logs, session files) from its
+own source location.
 
 ## 4. Docker Desktop
 
@@ -108,6 +119,12 @@ printf '#!/bin/sh\nexec "%s" "$@"\n' "$HOME/.local/opt/tart-2.41.1/tart.app/Cont
 chmod 755 ~/.local/bin/tart
 ```
 
+agenteval finds `tart` through the `PATH` of the shell or app you run it from, so any install
+folder works. If you keep Tart elsewhere (for example an extracted `tart.app` in another
+folder), link or wrap its `tart.app/Contents/MacOS/tart` into a folder on `PATH` as above, and
+check with `command -v tart`. agenteval reaches the VMs over SSH, so that app also needs macOS
+Local Network access (see [Troubleshooting](#troubleshooting)).
+
 **Licence.** Tart's repository `LICENSE` is the Functional Source License 1.1 with an Apache 2.0
 future licence (`FSL-1.1-ALv2`), copyright OpenAI. The FSL restricts some uses. **Have legal
 confirm** that this use is covered before relying on Tart internally.
@@ -129,6 +146,7 @@ The alternative is `tart.network: softnet` in the environment profile (see
 ## 6. Building the environment images
 
 Each environment needs an image, built once. Every sample then starts from a fresh copy.
+`agenteval dev` sessions start from the same images and need no extra build.
 
 ### Docker: `uv run agenteval env build docker-ubuntu`
 
@@ -202,14 +220,15 @@ needs `OPENROUTER_API_KEY`.
 - **Alternative: a `.env` file** in the repository root with the line
   `OPENROUTER_API_KEY=...`. `.env` is gitignored. agenteval loads it (python-dotenv, searched
   upward from the current directory, like Inspect does) before it checks required variables;
-  a variable already set in the shell wins. Never commit it, and never put the key in your
-  shell profile.
+  a variable already set in the shell wins. `agenteval dev`, which runs from your own
+  project, reads the checkout's `.env`, not your project's. Never commit it, and never put
+  the key in your shell profile.
 - **It stays on the host.** Inspect makes the model calls from the host process. Inside the
   VM, OpenCode only gets a placeholder key (`OPENROUTER_API_KEY=sk-none`) and talks to a local
   bridge (see [architecture.md](architecture.md#model-calls-the-bridge)). The VM never sees the
   real key, and it does not appear in eval logs.
-- `agenteval doctor` and `agenteval run` report a missing key by name only, never its value.
-  `doctor` also says which `.env` file it loaded.
+- `agenteval doctor`, `agenteval run` and `agenteval dev` report a missing key by name only,
+  never its value. `doctor` also says which `.env` file it loaded.
 - Set a credit limit on the key in the OpenRouter dashboard. Per-sample `token_limit` (and
   optionally `cost_limit`) in the run file add a second cap.
 
@@ -250,13 +269,34 @@ the shell or `.env`). On a Linux Docker host it also warns when
 
 Open each result with `uv run agenteval report open` and `uv run agenteval view`.
 
+### Interactive sessions: `agenteval dev`
+
+`agenteval dev` attaches your terminal to a harness CLI running in one environment, working on
+the project you start it from. See [dev.md](dev.md), and [dev-features.md](dev-features.md)
+for the command that starts each harness. It uses the same images, and this checkout's
+profiles and `.env`, so it needs nothing beyond the steps above, plus:
+
+- the editable tool install from step 3, or `uv run --project <checkout> agenteval dev ...`;
+- an interactive terminal: it refuses to start when stdin or stdout is not a terminal;
+- for `tart-ubuntu`, `tart` on `PATH` and Local Network access for the app you run it from
+  (step 5);
+- for the review's edit key (`e`), `$VISUAL` or `$EDITOR` set to an editor command that waits
+  until you close the file. The default is `vi`.
+
+A free first session (the mock model answers with a fixed text), from a project of yours:
+
+```sh
+cd ~/src/my-project
+agenteval dev --harness opencode-bwrap --env docker-ubuntu --model mock
+```
+
 ## Data egress
 
 What leaves the machine, where it goes and when:
 
 | Data | Destination | When | Notes |
 | --- | --- | --- | --- |
-| Prompts, repository code, tool output, model replies | OpenRouter and the upstream provider it routes to | Every model call in `capability` and `injection` samples, including CodeIPI's grader (model role `grader`, bound to the evaluated model) | **Third party.** The profile sets OpenRouter provider routing `data_collection: deny`, which only routes to providers that do not collect request data. They still receive it. The built-in tasks are synthetic or public. Get approval before pointing it at internal code. |
+| Prompts, repository code, tool output, model replies | OpenRouter and the upstream provider it routes to | Every model call in `capability` and `injection` samples, including CodeIPI's grader (model role `grader`, bound to the evaluated model), and in `agenteval dev` sessions | **Third party.** The profile sets OpenRouter provider routing `data_collection: deny`, which only routes to providers that do not collect request data. They still receive it. The built-in tasks are synthetic or public; an `agenteval dev` session sends code from your own repo. Get approval before pointing it at internal code. |
 | Prompts, code, tool output (Claude profiles) | Anthropic API, or Amazon Bedrock in your AWS account | Every model call when a `claude-sonnet-*` profile is the task or subagent model | Third party (Anthropic) or your cloud provider (Bedrock). With the global Bedrock inference profile, requests may be served in any region. |
 | Prompts, code, tool output (gateway profiles) | The company gateway | Every model call when a `gateway-*` profile is used | Internal. |
 | Claude Code release manifest and binary | `claude.ai/install.sh` (to find the release bucket), `downloads.claude.ai` | First use of a Claude Code version | Downloaded **on the host** by inspect_swe, checked against the SHA-256 in the release manifest, cached, then copied into the environment. Inside the environment Claude Code runs with `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1` and only reaches the bridge. |
@@ -273,7 +313,9 @@ Everything else stays local. The harness profiles set `npm_config_offline: "true
 does not fetch its plugin package from npm inside the environment (that traffic would also be
 counted as an agent egress attempt). Eval logs in `logs/` hold full transcripts, including
 code, tool output and the fake canary tokens; reports in `reports/` are built from them. Both
-directories are gitignored. The mock model makes no network calls at all.
+directories are gitignored. `agenteval dev` writes its logs to `logs/dev/` and keeps each
+session's repo snapshot, copied CLI config and returned changes in `.agenteval/sessions/`,
+which is gitignored too. The mock model makes no network calls at all.
 
 ## Troubleshooting
 
@@ -281,14 +323,17 @@ directories are gitignored. The mock model makes no network calls at all.
 | --- | --- |
 | `inner sandbox 'bwrap' failed to start as user 'agent'` / `bubblewrap could not set up the sandbox ... the command was NOT run` / `/usr/bin/bwrap is not executable for uid ...` | bubblewrap cannot start. The wrapper fails closed: it never runs the agent unsandboxed. **Not executable:** only root and the group `agenteval-bwrap` may run bwrap; agenteval adds the run user to that group in bwrap cells only. **Tart:** Ubuntu 24.04 restricts unprivileged user namespaces through AppArmor. `provision.sh` installs `/etc/apparmor.d/agenteval-bwrap` for this. Rebuild the image with `uv run agenteval env build tart-ubuntu --force`, and check inside a debug VM (below) with `sudo aa-status \| grep agenteval-bwrap`. **Docker:** bwrap cells need `bwrap_security_opt` (next row); do not empty it for them. On a Linux Docker host with `kernel.apparmor_restrict_unprivileged_userns=1` (`doctor` warns), the host's AppArmor policy applies inside the container too: the host needs an AppArmor profile granting `userns` to `/usr/bin/bwrap`, the sysctl set to 0, or the environment on `runtime: runsc`. |
 | Docker `security_opt` and its trade-off | Cells without an inner sandbox (`opencode-none`) run with stock Docker confinement (`security_opt: []` by default). Cells whose harness uses bubblewrap (`opencode-bwrap`) also get `bwrap_security_opt`: `seccomp=unconfined`, `apparmor=unconfined`, `systempaths=unconfined`. bubblewrap needs them: Docker's default seccomp profile blocks user namespaces, and mounting a fresh `/proc` is refused while Docker masks `/proc` paths. The cost is real: inside those containers root can write global `/proc/sys` entries (for example `kernel.core_pattern`, which affects the whole Docker host kernel; on a Mac that is Docker Desktop's Linux VM) and `/proc/sysrq-trigger`, and every user can create user namespaces. The agent runs as the unprivileged `agent`, and agenteval's own scorers never run agent-written code as root (CodeIPI's scorer is the exception, see [Known limitations](security-tests.md#known-limitations)). Fine for local validation, but do not read these results as those of a hardened container. On a shared Docker host, run bwrap cells under gVisor (`runtime: runsc`, see [extending.md](extending.md#a-different-docker-runtime-gvisor-kata)). |
+| `SSH on admin@192.168.64.x not ready ... No route to host` (Tart), while `tart exec <vm> true` works | macOS Local Network privacy blocks the app you run agenteval from (terminal, IDE, or the Claude app) from reaching the VM. Allow it in System Settings → Privacy & Security → Local Network and restart that app. Check with `ping <VM IP>` from that app: a blocked app gets `sendto: No route to host` at once. |
 | `Tart VM ... got no IP within 180s`, many runs on the same day | DHCP lease exhaustion. Each sample VM uses a new MAC address and holds a lease for 24 hours by default; `doctor` and each Tart task warn about it. Shorten the lease time (step 5) or use `tart.network: softnet`. Stale leases expire on their own, or can be removed from `/var/db/dhcpd_leases` (root-owned; do it while no Tart VM runs). See [Tart's FAQ](https://tart.run/faq/). |
 | `Tart image ... exists but its SSH key ... is missing` | The image only accepts the key it was built with. Rebuild with `uv run agenteval env build tart-ubuntu --force` (creates a new key). |
 | `Working directory ... does not exist in Tart image` / `User ... does not exist in Tart image` | The image was built for another `workspace` or `agent_user`. Rebuild with `--force`. |
 | `sandbox-exec: warning: running as root (uid 0); root runs are a weaker boundary` | The agent runs as root inside bubblewrap (e.g. injection with `agent_user: root`). Root keeps uid 0, so root-owned IPC endpoints still visible inside the sandbox can act outside it. Use an unprivileged user for meaningful bwrap results. |
 | `network: softnet` hangs or fails | Softnet isolates VMs from the host and from each other, but needs the separate `softnet` helper ([openai/softnet](https://github.com/openai/softnet)) on `PATH`, made SUID root or allowed through passwordless sudo. Tart asks for the sudo password interactively on first use, which cannot happen while agenteval runs `tart run` in the background. Set it up once in a terminal, or keep `network: nat` (the default). Softnet has not been tested with agenteval yet. |
-| Leftover VMs or containers after Ctrl-C or a crash | `uv run agenteval env cleanup` deletes every per-sample VM (`agenteval-<8 hex>`) and every Docker compose project created from `.agenteval/compose/`. It never touches the image `agenteval-ubuntu-24.04`. Build leftovers (`agenteval-build-<hex>`, only after a hard kill) are not matched: find them with `tart list` and remove them with `tart delete NAME`. |
+| Leftover VMs or containers after Ctrl-C or a crash | `uv run agenteval env cleanup` deletes every per-sample VM (`agenteval-<8 hex>`) and every Docker compose project created from `.agenteval/compose/`, including those still in use, such as a running `agenteval dev` session: run it only when nothing else is running. It never touches the image `agenteval-ubuntu-24.04`. Build leftovers (`agenteval-build-<hex>`, only after a hard kill) are not matched: find them with `tart list` and remove them with `tart delete NAME`. |
 | `Tart image 'agenteval-ubuntu-24.04' not found` / `SSH key ... not found` | Run `uv run agenteval env build tart-ubuntu`. |
 | `missing required environment variables: OPENROUTER_API_KEY` | Export it in this shell (step 7). The mock model needs no key: `--model mock`. |
+| `missing required environment variables: GATEWAY_API_KEY, GATEWAY_BASE_URL` from `agenteval dev` with a `claude-code-subagents-*` or `claude-code-opencode-*` harness | Their default subagent model is `gateway-qwen`, which also ships with a placeholder model id (step 7). Pass `--subagent-model`, for example `--subagent-model mock-worker` with `--model mock`, or `--subagent-model qwen38-27b`. |
+| `The session failed: ... has no agent_models.opencode entry` (`agenteval dev` with an `opencode-*` harness) | The OpenCode TUI needs the model profile's `agent_models.opencode`. `claude-sonnet-api` and `claude-sonnet-bedrock` have none; use a model that has one, such as `mock` or `qwen38-27b`. The check runs after the environment has started. |
 | `run 'X' not found` / `no runs found in logs` | Run from the repository root: `logs/` and `reports/` are relative to the current directory. |
 | A workspace check or capability test errors under `opencode-bwrap` | Look at the `fs.workspace_write` containment check and at the sample's error in `uv run agenteval view`. |
 
@@ -302,3 +347,9 @@ ssh -i ~/.agenteval/ssh/id_ed25519 -o IdentitiesOnly=yes admin@"$(tart ip agente
 # ... when done:
 tart stop agenteval-debug && tart delete agenteval-debug
 ```
+
+To work in a provisioned VM with a harness already set up (and your repo copied in), use
+`agenteval dev --env tart-ubuntu --harness ... --model ...` instead; see [dev.md](dev.md).
+Its `--mount live` mode shares your repo folder with `tart run --dir` and mounts it inside
+the VM with virtiofs; if the agent user cannot write the share, its uid is changed to the
+folder's owner for that session.

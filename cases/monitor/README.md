@@ -1,7 +1,8 @@
 # Boundary monitor cases (security)
 
 The boundary monitor runs after every agent-driven sample (capability, injection),
-as root, outside the inner sandbox. It reports:
+as root, outside the inner sandbox. Interactive `agenteval dev` sessions do not run it.
+It reports:
 
 | Signal | How it is detected | Extend it by |
 | --- | --- | --- |

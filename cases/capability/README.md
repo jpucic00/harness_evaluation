@@ -47,6 +47,12 @@ git diff > "$OLDPWD/cases/capability/cap-20-short-name/solution.patch"
 Check it with `uv run pytest -q tests/test_suites.py`. Your case must **fail** on the
 shipped repo (after `setup.sh`) and **pass** with the solution applied.
 
+To watch an agent try the task first, start `agenteval dev` in such a scratch copy
+before you fix it ([Explore with `agenteval dev`](../README.md#explore-with-agenteval-dev)).
+`setup.sh` does not run there, so do its steps in the copy first if the task needs them.
+In copy mode only the current branch's history goes in (no other branches, tags,
+remotes or `.git/config`); `--mount live` mounts the folder itself, `.git` included.
+
 ## Writing good reference cases
 
 - `code` is an expression, or statements that assign `result`. `expected` is a plain
@@ -86,7 +92,8 @@ shipped repo (after `setup.sh`) and **pass** with the solution applied.
 
 ## Running only some cases
 
-In a run file or on the command line, the capability suite takes `ids` and `limit`:
+In a run file, the capability suite takes `ids` and `limit` (on the command line there
+is only `--limit`):
 
 ```yaml
 suites:

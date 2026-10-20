@@ -36,7 +36,7 @@ from inspect_swe._opencode.agentbinary import ensure_opencode_setup
 from inspect_swe._util.agentbinary import ensure_agent_binary_installed
 
 from agenteval import constants
-from agenteval.config import MatrixCell, ModelProfile, SubagentDef
+from agenteval.config import HarnessProfile, MatrixCell, ModelProfile, SubagentDef
 from agenteval.harnesses.opencode import agent_env
 from agenteval.harnesses.sandbox_exec import install_root_file, render_template, user_home
 
@@ -87,8 +87,8 @@ def render_subagent(name: str, agent: SubagentDef) -> str:
     return "\n".join(lines)
 
 
-def delegation_note(cell: MatrixCell) -> str | None:
-    subagents = cell.harness.subagents
+def delegation_note(harness: HarnessProfile) -> str | None:
+    subagents = harness.subagents
     if subagents is None:
         return None
     if subagents.instructions:
@@ -130,24 +130,37 @@ def agent_kwargs(
         raise ValueError(
             f"harness '{harness.name}': options {sorted(reserved)} are set by agenteval"
         )
-    prompts = [p for p in (harness.system_prompt, system_prompt, delegation_note(cell)) if p]
+    prompts = [p for p in (harness.system_prompt, system_prompt, delegation_note(harness)) if p]
     kwargs: dict[str, Any] = {"cwd": cell.environment.workspace}
     if prompts:
         kwargs["system_prompt"] = "\n\n".join(prompts)
-    subagents = harness.subagents
-    if subagents is not None:
-        if worker is None or cell.subagent_model is None:
-            raise ValueError(f"harness '{harness.name}': subagent model not resolved")
-        if subagents.runner == "claude_code":
-            # inspect_swe derives the routing alias from this name; the alias below
-            # replaces its argument-less model with ours (provider args included)
-            kwargs["subagent_model"] = cell.subagent_model.inspect_model
-            kwargs["model_aliases"] = {worker.name: worker}
-        else:
-            kwargs["model_aliases"] = {WORKER_MODEL_NAME: worker}
+    subagent_model, aliases = subagent_routing(harness, cell.subagent_model, worker)
+    if subagent_model is not None:
+        kwargs["subagent_model"] = subagent_model
+    if aliases:
+        kwargs["model_aliases"] = aliases
     kwargs |= harness.options
     kwargs |= {"version": "sandbox", "user": user, "env": dict(env)}
     return kwargs
+
+
+def subagent_routing(
+    harness: HarnessProfile, subagent: ModelProfile | None, worker: Model | None
+) -> tuple[str | None, dict[str, str | Model]]:
+    """``(subagent_model, model_aliases)`` for inspect_swe and the bridge.
+
+    ``worker`` is the subagent model resolved inside the eval (provider args applied).
+    """
+    subagents = harness.subagents
+    if subagents is None:
+        return None, {}
+    if worker is None or subagent is None:
+        raise ValueError(f"harness '{harness.name}': subagent model not resolved")
+    if subagents.runner == "claude_code":
+        # inspect_swe derives the routing alias from this name; the alias below
+        # replaces its argument-less model with ours (provider args included)
+        return subagent.inspect_model, {worker.name: worker}
+    return None, {WORKER_MODEL_NAME: worker}
 
 
 async def _write_user_file(sbox: SandboxEnvironment, user: str, path: str, content: str) -> None:
@@ -167,42 +180,59 @@ def install_agent(cell: MatrixCell, user: str | None = None) -> Solver:
     harness = cell.harness
 
     async def solve(state: TaskState, generate: Generate) -> TaskState:
-        sbox = sandbox()
-        binary = await ensure_agent_binary_installed(
-            claude_code_binary_source(), harness.version, run_user, sbox
-        )
-        if binary == CLAUDE_WRAPPER:
-            current = await sbox.read_file(CLAUDE_WRAPPER)
-            if WRAPPER_MARKER not in current:
-                raise RuntimeError(
-                    f"claude is installed at {CLAUDE_WRAPPER}; agenteval needs that path "
-                    "for its sandbox wrapper. Pin a version in the harness profile instead."
-                )
-        else:
-            await install_root_file(sbox, CLAUDE_WRAPPER, render_wrapper(binary), "0755")
-
-        found = await sbox.exec(["bash", "-c", "command -v claude"], user=run_user)
-        if not found.success or found.stdout.strip() != CLAUDE_WRAPPER:
-            raise RuntimeError(
-                f"`command -v claude` as '{run_user}' resolves to "
-                f"{found.stdout.strip() or '<nothing>'}, expected {CLAUDE_WRAPPER}"
-            )
-
-        home = await user_home(sbox, run_user)
-        await _write_user_file(sbox, run_user, f"{home}/.claude/settings.json", SEEDED_SETTINGS)
-        subagents = harness.subagents
-        if subagents is not None and subagents.runner == "claude_code":
-            for name, agent in subagents.agents.items():
-                path = f"{home}/.claude/agents/{name}.md"
-                await _write_user_file(sbox, run_user, path, render_subagent(name, agent))
-        elif subagents is not None and subagents.runner == "opencode":
-            oc_binary, dep_dirs = await ensure_opencode_setup(
-                sbox, subagents.opencode_version, run_user
-            )
-            await install_root_file(sbox, OPENCODE_WORKER, render_worker(oc_binary, dep_dirs))
+        await install_claude(sandbox(), harness, run_user)
         return state
 
     return solve
+
+
+async def install_claude(
+    sbox: SandboxEnvironment,
+    harness: HarnessProfile,
+    run_user: str,
+    *,
+    seed_settings: bool = True,
+    write_subagents: bool = True,
+) -> str:
+    """Install Claude Code (see ``install_agent``); returns the binary inspect_swe resolved.
+
+    ``seed_settings``/``write_subagents`` write into the user's ``~/.claude``; dev
+    sessions turn them off and pass the same settings and agents on the command line.
+    """
+    binary = await ensure_agent_binary_installed(
+        claude_code_binary_source(), harness.version, run_user, sbox
+    )
+    if binary == CLAUDE_WRAPPER:
+        current = await sbox.read_file(CLAUDE_WRAPPER)
+        if WRAPPER_MARKER not in current:
+            raise RuntimeError(
+                f"claude is installed at {CLAUDE_WRAPPER}; agenteval needs that path "
+                "for its sandbox wrapper. Pin a version in the harness profile instead."
+            )
+    else:
+        await install_root_file(sbox, CLAUDE_WRAPPER, render_wrapper(binary), "0755")
+
+    found = await sbox.exec(["bash", "-c", "command -v claude"], user=run_user)
+    if not found.success or found.stdout.strip() != CLAUDE_WRAPPER:
+        raise RuntimeError(
+            f"`command -v claude` as '{run_user}' resolves to "
+            f"{found.stdout.strip() or '<nothing>'}, expected {CLAUDE_WRAPPER}"
+        )
+
+    home = await user_home(sbox, run_user)
+    if seed_settings:
+        await _write_user_file(sbox, run_user, f"{home}/.claude/settings.json", SEEDED_SETTINGS)
+    subagents = harness.subagents
+    if subagents is not None and subagents.runner == "claude_code" and write_subagents:
+        for name, agent in subagents.agents.items():
+            path = f"{home}/.claude/agents/{name}.md"
+            await _write_user_file(sbox, run_user, path, render_subagent(name, agent))
+    elif subagents is not None and subagents.runner == "opencode":
+        oc_binary, dep_dirs = await ensure_opencode_setup(
+            sbox, subagents.opencode_version, run_user
+        )
+        await install_root_file(sbox, OPENCODE_WORKER, render_worker(oc_binary, dep_dirs))
+    return binary
 
 
 @solver

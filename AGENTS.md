@@ -22,7 +22,9 @@ the person asking; build the case around their text.
 
 New suites, harnesses, environments and providers:
 [docs/extending.md](docs/extending.md). Architecture:
-[docs/architecture.md](docs/architecture.md).
+[docs/architecture.md](docs/architecture.md). Interactive sessions for trying a setup by
+hand (`agenteval dev`, code in `src/agenteval/dev/`): [docs/dev.md](docs/dev.md). They
+need an interactive terminal.
 
 Checks before finishing: `uv run ruff check .`, `uv run ruff format --check .`,
 `uv run mypy src`, `uv run pytest -q`. Offline end-to-end run (Docker, mock model):

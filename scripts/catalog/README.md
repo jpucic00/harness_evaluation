@@ -18,5 +18,5 @@ uv run python scripts/catalog/collect.py > /tmp/catalog-data.json
 uv run python scripts/catalog/render.py /tmp/catalog-data.json docs/test-catalog.html --standalone
 ```
 
-Without `--standalone`, the output is an artifact page body: no `<html>` skeleton, and
-fonts are loaded from Google Fonts.
+Without `--standalone`, the output is an artifact page body: no `<html>` skeleton. Both
+forms load fonts from Google Fonts.

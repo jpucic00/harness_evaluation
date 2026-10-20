@@ -20,7 +20,7 @@ import shutil
 import signal
 import sys
 import tempfile
-from collections.abc import Iterator
+from collections.abc import Iterator, Sequence
 from pathlib import Path
 from subprocess import DEVNULL, STDOUT
 
@@ -187,6 +187,16 @@ async def cleanup_vms(id: str | None = None) -> list[str]:
     return deleted
 
 
+SHARE_TAG = "com.apple.virtio-fs.automount"
+"""virtiofs tag under which Tart exposes all ``--dir`` shares to a Linux guest; each
+share is a subdirectory named after it (``share_name``)."""
+
+
+def share_name(index: int) -> str:
+    """Name of the ``index``-th ``--dir`` share of a VM."""
+    return f"agenteval{index}"
+
+
 class TartVM:
     """One Tart VM and the ``tart run`` process that keeps it running."""
 
@@ -213,11 +223,17 @@ class TartVM:
             ["set", self.name, "--cpu", str(cpu), "--memory", str(memory_mb), "--random-mac"]
         )
 
-    async def start(self, *, network: str) -> None:
-        """Boot in the background. No ``--dir``: the host shares no folders with the VM."""
+    async def start(self, *, network: str, dirs: Sequence[str] = ()) -> None:
+        """Boot in the background.
+
+        Eval VMs pass no ``dirs``: the host shares no folders with them. ``dirs`` (dev
+        live mounts) become ``--dir=agenteval<i>:<path>`` shares, visible in the guest
+        under the virtiofs automount tag (see ``SHARE_TAG``).
+        """
         args = [tart_binary(), "run", self.name, "--no-graphics"]
         if network == "softnet":
             args.append("--net-softnet")
+        args += [f"--dir={share_name(i)}:{path}" for i, path in enumerate(dirs)]
         self._network = network
         self._log_dir = Path(tempfile.mkdtemp(prefix="agenteval-tart-"))
         with (self._log_dir / "run.log").open("wb") as log:

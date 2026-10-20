@@ -577,3 +577,43 @@ def test_compose_file_runs(compose_project: tuple[str, Path]) -> None:
     )
     assert check.returncode == 0, check.stderr
     assert check.stdout.split() == ["/workspace", "127.0.0.1", "docker-init", "0", "0", "4096"]
+
+
+# --- dev live mounts ----------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("inner", "digest"),
+    [
+        ("none", "ce000cbbde46ddcf5e74bf0318afb604f2876332d80ab13559b4dd96e3572317"),
+        ("bwrap", "e9c79508167d486ba538dea13969c5a4f78a2a17bbf19b2efdb1ab61458040aa"),
+    ],
+)
+def test_compose_text_unchanged_without_mounts(inner: str, digest: str) -> None:
+    """Eval runs share no host folders: adding dev mounts must not change their compose file."""
+    from agenteval.config import load_profiles
+
+    env = load_profiles(REPO_ROOT / "config").environments["docker-ubuntu"]
+    text = docker.compose_text(env, inner_sandbox=inner)  # type: ignore[arg-type]
+    assert hashlib.sha256(text.encode()).hexdigest() == digest
+    assert "volumes" not in text
+
+
+def test_compose_mounts_bind_same_path() -> None:
+    assert "x-inspect_docker_sandbox" not in docker.compose_config(docker_env())
+    config = docker.compose_config(docker_env(), mounts=["/Users/me/proj", "/Users/me/x y"])
+    assert config["x-inspect_docker_sandbox"] == {"unsafe_allow_writable_host_mounts": True}
+    assert config["services"]["default"]["volumes"] == [
+        {"type": "bind", "source": "/Users/me/proj", "target": "/Users/me/proj"},
+        {"type": "bind", "source": "/Users/me/x y", "target": "/Users/me/x y"},
+    ]
+
+
+def test_sandbox_spec_tart_shared_dirs() -> None:
+    from agenteval.environments.tart.sandbox import TartSandboxConfig
+
+    env = EnvironmentProfile(name="t", provider="tart")
+    spec = sandbox_spec(env, mounts=["/Users/me/proj"])
+    assert isinstance(spec.config, TartSandboxConfig)
+    assert spec.config.shared_dirs == ("/Users/me/proj",)
+    assert sandbox_spec(env).config.shared_dirs == ()  # type: ignore[union-attr]

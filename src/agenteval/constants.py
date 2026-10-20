@@ -15,6 +15,26 @@ def cases_dir() -> Path:
     return Path(__file__).resolve().parents[2] / "cases"
 
 
+class CheckoutError(RuntimeError):
+    """agenteval is not running from its checkout (see ``checkout_root``)."""
+
+
+def checkout_root() -> Path:
+    """The agenteval checkout this package runs from (needs an editable install).
+
+    ``agenteval dev`` runs from the user's own repo, so its profiles, ``.env``, logs and
+    session files are found here rather than relative to the current directory.
+    """
+    root = Path(__file__).resolve().parents[2]
+    if not (root / "pyproject.toml").is_file() or not (root / "config").is_dir():
+        raise CheckoutError(
+            f"agenteval is not running from its checkout ({root}). Install it with "
+            "`uv tool install --editable <checkout>` or run "
+            "`uv run --project <checkout> agenteval ...`."
+        )
+    return root
+
+
 # Directory inside every environment that holds agenteval's helper scripts.
 # Root-owned, world-readable; uploaded fresh for every sample.
 OPT_DIR = "/opt/agenteval"
