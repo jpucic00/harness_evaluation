@@ -24,7 +24,7 @@ import anyio
 from inspect_ai import Task
 from inspect_ai.agent import AgentState, sandbox_agent_bridge
 from inspect_ai.dataset import Sample
-from inspect_ai.model import Model, get_model
+from inspect_ai.model import Model
 from inspect_ai.solver import Generate, Solver, TaskState, solver
 from inspect_ai.util import SandboxEnvironment, sandbox
 from inspect_swe._claude_code.env import (
@@ -46,6 +46,7 @@ from agenteval.harnesses.sandbox_exec import (
     install_sandbox_exec,
     render_template,
 )
+from agenteval.models import build_model
 from agenteval.suites.common import (
     SandboxUser,
     resolve_user,
@@ -68,6 +69,8 @@ SHARES_MOUNT = "/mnt/agenteval-shares"
 BRIDGE_PORT = 13131
 SHIM_PORT = 13132
 """OpenCode talks to ``think_shim.py`` here; it forwards to the bridge (``BRIDGE_PORT``)."""
+HEADER_TIMEOUT_MS = 3_600_000
+"""OpenCode's wait for response headers; matches think_shim's UPSTREAM_TIMEOUT (1 h)."""
 POLL_RECOVERY = 86400.0
 """Keep re-polling the bridge proxy for a day: the host may sleep during a session."""
 DETACH_KEYS = "ctrl-^,ctrl-_,ctrl-^"
@@ -326,13 +329,24 @@ def opencode_launch(
             f"model '{spec.model.name}' has no agent_models.opencode entry (provider/model) "
             f"for harness '{harness.name}'"
         )
-    provider = cli_model.split("/", 1)[0]
+    provider, model_id = cli_model.split("/", 1)
     # through think_shim.py, so reasoning shows as OpenCode's own "Thinking" block
     base_url = f"http://localhost:{SHIM_PORT}/v1"
+    profile = spec.model
+    # display names only: OpenCode keeps the catalog entry's limits, flags and request format
+    label = f"{profile.description} ({profile.name})" if profile.description else profile.name
     config = {
         "$schema": "https://opencode.ai/config.json",
         "model": cli_model,
-        "provider": {provider: {"options": {"baseURL": base_url}}},
+        "provider": {
+            provider: {
+                "name": "agenteval bridge",
+                # the shim answers only once the whole reply is in (no streaming), so wait as
+                # long as it does instead of OpenCode's 300 s default, which re-sends the turn
+                "options": {"baseURL": base_url, "headerTimeout": HEADER_TIMEOUT_MS},
+                "models": {model_id: {"name": label}},
+            }
+        },
         "autoupdate": False,
         "share": "disabled",
     }
@@ -740,11 +754,7 @@ def dev_session(spec: DevSpec, io: DevIO, on_export: ExportHandler) -> Solver:
         aliases: dict[str, str | Model] = {}
         bridge_model: str | None = None
         if harness.agent == "claude_code":
-            worker = (
-                get_model(spec.subagent_model.inspect_model, **spec.subagent_model.model_args)
-                if spec.subagent_model
-                else None
-            )
+            worker = build_model(spec.subagent_model) if spec.subagent_model else None
             subagent, routing = claude_harness.subagent_routing(
                 harness, spec.subagent_model, worker
             )
@@ -788,7 +798,7 @@ def build_dev_task(spec: DevSpec, io: DevIO, on_export: ExportHandler) -> Task:
         sandbox=sandbox_spec(
             spec.environment, inner_sandbox=spec.harness.inner_sandbox.type, mounts=spec.mounts
         ),
-        model=get_model(spec.model.inspect_model, **spec.model.model_args),
+        model=build_model(spec.model),
         metadata={
             "agenteval_dev": {
                 "session_id": spec.session_id,

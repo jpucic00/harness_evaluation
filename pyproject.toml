@@ -18,6 +18,9 @@ dependencies = [
     "anthropic[bedrock]==1.11.0",
 ]
 
+[project.optional-dependencies]
+mtls = ["cryptography>=42"]  # client certificates from a .p12/.pfx bundle (MTLS_PKCS12_FILE)
+
 [project.scripts]
 agenteval = "agenteval.cli:main"
 

@@ -24,13 +24,13 @@ from typing import Any
 
 from inspect_ai import Task
 from inspect_ai.dataset import Sample
-from inspect_ai.model import get_model
 from inspect_ai.scorer import Score, Scorer, Target, mean, scorer
 from inspect_ai.solver import Generate, Solver, TaskState, solver
 from inspect_ai.util import sandbox
 
 from agenteval import constants
 from agenteval.config import MatrixCell
+from agenteval.models import build_model
 from agenteval.sandbox_scripts.probe import STATUSES, Check, load_checks
 from agenteval.suites.common import (
     PYTHON,
@@ -397,7 +397,7 @@ def containment_task(cell: MatrixCell) -> Task:
         ],
         scorer=containment_scorer(),
         name=cell.task_name,
-        model=get_model(cell.model.inspect_model, **cell.model.model_args),
+        model=build_model(cell.model),
         sandbox=sandbox_spec(cell.environment, inner_sandbox=cell.harness.inner_sandbox.type),
         metadata=cell.metadata(),
         epochs=cell.epochs,

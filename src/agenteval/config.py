@@ -50,11 +50,26 @@ class Pricing(_Strict):
         return self.input if self.input_cache_write is None else self.input_cache_write
 
 
+class Connection(_Strict):
+    """How the host reaches the provider (OpenAI-compatible providers only).
+
+    Setting it also loads the CA bundle from ``SSL_CERT_FILE`` and a client certificate
+    from ``MTLS_CERT_FILE`` / ``MTLS_KEY_FILE`` / ``MTLS_KEY_PASSWORD`` or
+    ``MTLS_PKCS12_FILE`` / ``MTLS_PKCS12_PASSWORD`` (see ``agenteval.models``).
+    """
+
+    proxy: Literal["environment", "direct"] = "environment"
+    """``direct`` ignores HTTP(S)_PROXY and the OS proxy settings: for a gateway reached
+    over a VPN that drops proxied calls ("Server disconnected without sending a response")."""
+
+
 class ModelProfile(_Named):
     description: str = ""
     inspect_model: str
     """Inspect model id, e.g. ``openrouter/qwen/qwen3.8-27b`` or ``mockllm/model``."""
     model_args: dict[str, Any] = Field(default_factory=dict)
+    connection: Connection | None = None
+    """Custom HTTP client settings; ``None`` keeps Inspect's default client."""
     pricing: Pricing | None = None
     required_env: list[str] = Field(default_factory=list)
     """Host env vars that must be set before the run starts (e.g. OPENROUTER_API_KEY)."""

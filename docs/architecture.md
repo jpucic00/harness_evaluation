@@ -124,6 +124,12 @@ Consequences:
 - The API key never enters the environment. OpenCode gets a placeholder key (`sk-none`) for
   the provider in its model id, e.g. `OPENROUTER_API_KEY=sk-none` for
   `openrouter/qwen/qwen3.8-27b`, because it refuses to start a provider without one.
+- The call to the provider leaves from the host, so only the host needs a route to it (for
+  the company gateway, the VPN). Every model agenteval builds goes through `build_model`
+  ([models.py](../src/agenteval/models.py)): a profile with `connection` gets its own HTTP
+  client that follows those settings (`proxy: direct` ignores the proxy variables and the OS
+  proxy settings; CA bundle from `SSL_CERT_FILE`, client certificate from `MTLS_*`), and a
+  profile without it uses Inspect's default client.
 - `agent_models` in a model profile only chooses OpenCode's request format and prompt template.
   The model that answers is always the profile's `inspect_model`.
 - Every model call is recorded by Inspect (tokens, cost, timing) and appears in the transcript.
@@ -158,7 +164,7 @@ unless the file sets `name:`. They are validated strictly: an unknown key is an 
 
 | Kind | Controls | Key fields |
 | --- | --- | --- |
-| Model ([config/models/](../config/models/)) | The LLM behind the bridge | `inspect_model`, `model_args`, `pricing` (USD per 1M tokens), `required_env`, `agent_models` |
+| Model ([config/models/](../config/models/)) | The LLM behind the bridge | `inspect_model`, `model_args`, `connection` (proxy policy, TLS), `pricing` (USD per 1M tokens), `required_env`, `agent_models` |
 | Harness ([config/harnesses/](../config/harnesses/)) | Agent CLI, version and inner sandbox | `agent`, `version`, `inner_sandbox` (`type`, `hide_paths`, `extra_writable_paths`, `network`, `clear_env`, `env_passthrough`), `env`, `system_prompt`, `options` |
 | Environment ([config/environments/](../config/environments/)) | Where samples run | `provider` (`tart`/`docker`), `agent_user`, `workspace`, `egress`, `ambient_secrets`, `max_concurrent`, `probe`, `tart` / `docker` settings (Docker: `security_opt`, `bwrap_security_opt`, `pids_limit`, ...) |
 | Run ([config/runs/](../config/runs/)) | What to execute | `models`, `harnesses`, `environments`, `suites` (+ `options`), `epochs`, `limits`, `max_samples`, `max_tasks`, `retry_attempts`, `fail_on_error`, `log_dir`, `report_dir` |
@@ -285,7 +291,13 @@ or use `uv run agenteval view <run-id>`).
 `agenteval dev` ([dev/](../src/agenteval/dev/), user guide in [dev.md](dev.md)) reuses the
 eval machinery for one interactive session. It builds an Inspect `Task` directly (no run
 file, no `MatrixCell`, no scorers) with one sample and runs it with `eval(display="none")`
-from the checkout directory. The solver ([dev/task.py](../src/agenteval/dev/task.py)):
+from the checkout directory. It also passes `max_retries=2` and `attempt_timeout=900`
+([dev/commands.py](../src/agenteval/dev/commands.py)). Inspect's default retries a failing
+model call (for example a connection error) forever, and `display="none"` hides the retries,
+so the CLI would only show a spinner. With the limit, the bridge returns the error to the CLI
+after two retries; OpenCode, for example, shows it and retries with its own backoff. A slow
+but healthy attempt may still take up to 900 s. The solver
+([dev/task.py](../src/agenteval/dev/task.py)):
 
 1. Same sandbox spec as an eval cell (plus a bind mount / `tart run --dir` share in live
    mode, the only case where a host folder is shared). Setup is a subset of
@@ -327,9 +339,15 @@ from the checkout directory. The solver ([dev/task.py](../src/agenteval/dev/task
    and forwards to the bridge. The bridge returns reasoning as `<think>` text in the
    reply; the shim moves it into the `reasoning` / `reasoning_details` fields OpenCode
    renders as its thinking block, and OpenCode sends those back with its history, which
-   the bridge understands. Eval runs do not use it. When the CLI exits, every process of the agent user is killed. After a
-   non-zero exit the user can resume the conversation (the launcher again, with
-   `--continue`).
+   the bridge understands. Eval runs do not use it. OpenCode's provider entry (in
+   `OPENCODE_CONFIG_CONTENT`) sets `headerTimeout` to 1 h, the shim's own wait for the
+   bridge: the shim answers only once the whole reply is in, and OpenCode's 300 s default
+   would re-send the turn. The entry also names the provider `agenteval bridge` and the model
+   `<profile description> (<profile name>)` (the profile name alone without a description),
+   so OpenCode's status bar shows the model that answers. Only the display names change:
+   OpenCode keeps its catalog entry's limits, flags and request format. When the CLI
+   exits, every process of the agent user is killed. After a non-zero exit the user can
+   resume the conversation (the launcher again, with `--continue`).
 5. Export as the agent user (`dev_repo.py export`, a tar of the allow-listed config
    paths), pulled with `docker cp` / `ssh cat` and validated on the host (bundle fsck,
    tar member filter) before the environment is deleted. Each pulled file must be a
@@ -375,6 +393,7 @@ repo.
 | Path | Role |
 | --- | --- |
 | [config.py](../src/agenteval/config.py) | Pydantic profile schema, loading, `expand_matrix`, `missing_env`. |
+| [models.py](../src/agenteval/models.py) | `build_model(profile)`: the Inspect `Model` for a model profile, with its `model_args` and `connection` settings (proxy policy, CA bundle, client certificate). |
 | [constants.py](../src/agenteval/constants.py) | In-environment paths (`/opt/agenteval`, `/var/lib/agenteval`, ...), collector address, store keys, canary prefix; `checkout_root()`, the checkout `agenteval dev` takes its profiles, `.env`, logs and sessions from. |
 | [runner.py](../src/agenteval/runner.py), [cli.py](../src/agenteval/cli.py) | CLI logic (testable without click) and the click wrapper. |
 | [_registry.py](../src/agenteval/_registry.py) | Inspect entry point; importing it registers the `tart` sandbox. |

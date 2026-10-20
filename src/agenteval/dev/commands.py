@@ -325,6 +325,17 @@ def _discard_unstarted(session: DevSession, sdir: Path) -> None:
     shutil.rmtree(sdir, ignore_errors=True)
 
 
+DEV_MAX_RETRIES = 2
+"""Retries of a failing model call before the bridge returns the error to the CLI.
+Inspect's default retries forever, which the CLI shows as an endless spinner
+(display="none" hides the retry messages)."""
+DEV_ATTEMPT_TIMEOUT = 900
+"""Wall-clock seconds per attempt of a main-model call. It stops a hung call (a gateway that
+never answers) from being retried for hours; it is above the 600 s HTTP read timeout so a
+slow non-streamed turn is not cut, and 3 attempts stay under think_shim's 1 h upstream
+limit. A streamed turn (Anthropic with reasoning) longer than this is retried."""
+
+
 def _run_eval(make_task: Callable[[], Task], checkout: Path, log_dir: str | None) -> EvalLog | None:
     # inside the checkout: the compose file goes to <checkout>/.agenteval/compose (where
     # `agenteval env cleanup` looks), never into the user's repo
@@ -340,6 +351,8 @@ def _run_eval(make_task: Callable[[], Task], checkout: Path, log_dir: str | None
             max_samples=1,
             max_sandboxes=1,
             tags=["agenteval-dev"],
+            max_retries=DEV_MAX_RETRIES,
+            attempt_timeout=DEV_ATTEMPT_TIMEOUT,
         )
     return logs[0] if logs else None  # empty after an interrupt
 

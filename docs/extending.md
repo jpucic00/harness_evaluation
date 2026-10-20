@@ -31,6 +31,7 @@ uv run agenteval doctor --env <environment>   # tools, images, env vars
 | `description` | `""` | Shown by `agenteval profiles`. |
 | `inspect_model` | required | Inspect model id: `provider/model`, e.g. `openrouter/qwen/qwen3.8-27b`, `mockllm/model`. Any [Inspect provider](https://inspect.aisi.org.uk/providers.html) works. |
 | `model_args` | `{}` | Extra keyword arguments for Inspect's `get_model()`. They are provider-specific, e.g. OpenRouter's `provider:` routing preferences. |
+| `connection` | none | How the host reaches the provider. OpenAI-compatible providers only (e.g. `openai-api/...`, `openrouter/...`, `openai/...`). One key, `proxy`: `environment` (the default) uses `HTTP(S)_PROXY`, `ALL_PROXY` and the OS proxy settings as usual; `direct` ignores them, for a gateway reached over a VPN that drops proxied calls. Setting `connection` gives the profile its own HTTP client ([models.py](../src/agenteval/models.py)), which trusts what Inspect's own client trusts (`SSL_CERT_FILE`, else `SSL_CERT_DIR`, else the OS trust store) and a client certificate from `MTLS_CERT_FILE` / `MTLS_KEY_FILE` / `MTLS_KEY_PASSWORD`, or from a `.p12`/`.pfx` in `MTLS_PKCS12_FILE` / `MTLS_PKCS12_PASSWORD` (needs `uv sync --extra mtls`). Without it, Inspect's default client is used. |
 | `pricing` | none | USD per 1M tokens: `input`, `output`, optional `input_cache_read`, `input_cache_write`. Unset cache prices mean no cache discount: those tokens are charged at the `input` rate. Without `pricing`, cost is reported as `unknown`. |
 | `required_env` | `[]` | Host env vars that must be set before a run starts. They are checked by name; values are never printed. |
 | `agent_models` | `{}` | Model id handed to each agent CLI, keyed by harness `agent` (e.g. `opencode: openrouter/qwen/qwen3.8-27b`). It only selects the CLI's request format and prompt template; OpenCode gets a placeholder key for its provider (`OPENROUTER_API_KEY=sk-none`). The model that answers is always `inspect_model` (see [architecture.md](architecture.md#model-calls-the-bridge)). An OpenCode session in `agenteval dev` needs the `opencode` entry (or the harness's `agent_model`). |
@@ -46,6 +47,8 @@ environment:
 description: gpt-oss-120b on the internal OpenAI-compatible gateway
 inspect_model: openai-api/gateway/gpt-oss-120b   # the part after "gateway/" is sent as the model name
 required_env: [GATEWAY_API_KEY, GATEWAY_BASE_URL]
+connection:
+  proxy: direct   # reached over the VPN; the gateway drops calls sent through a proxy
 agent_models:
   # Request format / prompt template only; the bridge intercepts the call, so nothing
   # goes to OpenRouter. It must be an id OpenCode knows (its bundled catalog: the harness
@@ -59,10 +62,13 @@ pricing:   # internal rates in USD per 1M tokens; omit to report cost as "unknow
 ```sh
 export GATEWAY_BASE_URL=https://<gateway-host>/v1
 read -rs GATEWAY_API_KEY && export GATEWAY_API_KEY
+uv run python scripts/check_model.py gateway-gpt-oss-120b   # one call from the host, no environment
 uv run agenteval run opencode-qwen-tart --model gateway-gpt-oss-120b --limit 1
 ```
 
-Use the model name exactly as the gateway expects it. With the gateway, prompts and code stay
+Use the model name exactly as the gateway expects it. `check_model.py` shows which network
+step fails when the call does not get through (see
+[setup.md](setup.md#8-doctor-and-first-runs)). With the gateway, prompts and code stay
 on the internal network. The other downloads listed under
 [data egress](setup.md#data-egress) still happen (agent binaries, base images).
 

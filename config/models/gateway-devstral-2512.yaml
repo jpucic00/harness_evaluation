@@ -5,6 +5,12 @@
 description: devstral-2512 gateway
 inspect_model: openai-api/gateway/devstral-2512
 required_env: [GATEWAY_BASE_URL, GATEWAY_API_KEY]
+# The gateway is reached directly over the VPN; it drops calls sent through a proxy
+# ("Server disconnected without sending a response"). Optional in .env: SSL_CERT_FILE (a CA
+# bundle instead of the OS trust store) and MTLS_* (a client certificate); see
+# docs/setup.md#other-providers.
+connection:
+  proxy: direct
 agent_models:
   # Model id OpenCode is configured with: selects its OpenAI-style request format.
   # Calls still go through the Inspect bridge to inspect_model.

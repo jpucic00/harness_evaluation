@@ -27,7 +27,7 @@ from collections.abc import Mapping
 from typing import Any
 
 from inspect_ai.agent import Agent, as_solver
-from inspect_ai.model import Model, get_model
+from inspect_ai.model import Model
 from inspect_ai.solver import Generate, Solver, TaskState, solver
 from inspect_ai.util import SandboxEnvironment, sandbox
 from inspect_swe import claude_code
@@ -39,6 +39,7 @@ from agenteval import constants
 from agenteval.config import HarnessProfile, MatrixCell, ModelProfile, SubagentDef
 from agenteval.harnesses.opencode import agent_env
 from agenteval.harnesses.sandbox_exec import install_root_file, render_template, user_home
+from agenteval.models import build_model
 
 CLAUDE_WRAPPER = "/usr/local/bin/claude"
 WRAPPER_MARKER = "agenteval claude wrapper"
@@ -108,7 +109,7 @@ def delegation_note(harness: HarnessProfile) -> str | None:
 
 
 def worker_model(profile: ModelProfile) -> Model:
-    return get_model(profile.inspect_model, **profile.model_args)
+    return build_model(profile)
 
 
 def agent_kwargs(

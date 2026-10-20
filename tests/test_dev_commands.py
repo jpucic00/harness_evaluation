@@ -138,3 +138,18 @@ def test_format_sessions(checkout: Path) -> None:
     lines = commands.format_sessions().splitlines()
     assert lines[0].split() == ["SESSION", "STATUS", "HARNESS", "MODEL", "ENV", "REPO"]
     assert lines[1].split()[:2] == [SID, "pending"]
+
+
+def test_run_eval_bounds_model_retries(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Inspect retries a failing model call forever by default; display="none" hides it."""
+    seen: dict[str, Any] = {}
+
+    def fake_eval(task: object, **kwargs: Any) -> list[object]:
+        seen.update(kwargs)
+        return []
+
+    monkeypatch.setattr(commands, "inspect_eval", fake_eval)
+    assert commands._run_eval(lambda: object(), tmp_path, None) is None  # type: ignore[arg-type,return-value]
+    assert seen["max_retries"] == commands.DEV_MAX_RETRIES
+    assert seen["attempt_timeout"] == commands.DEV_ATTEMPT_TIMEOUT >= 600  # slow turns survive
+    assert seen["display"] == "none"

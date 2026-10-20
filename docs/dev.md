@@ -41,7 +41,10 @@ API keys come from the checkout's `.env` (or your shell), never from your projec
 `.env`. Like the evals, they stay on your machine: the CLI in the environment talks to
 Inspect's model bridge, which calls the provider from the host. If a variable that the
 model or subagent model profile requires is missing, the command stops before anything
-starts.
+starts. Because the bridge runs on your machine, your machine has to reach the provider,
+not the environment: for the company gateway, connect the VPN on your machine. The bridge
+uses the model profile's `connection` settings; the `gateway-*` profiles connect
+directly, without a proxy ([setup.md](setup.md#other-providers)).
 
 ## Options
 
@@ -99,9 +102,13 @@ The command needs an interactive terminal. Session options cannot be combined wi
    `--agents`, and the harness's `system_prompt` and delegation note with
    `--append-system-prompt`. OpenCode uses the model profile's `agent_models.opencode` as
    its model (a harness `agent_model` wins), and shows the model's reasoning in its own
-   collapsible thinking block (`/thinking` toggles it). `TERM`, `COLORTERM`, `TERM_PROGRAM` and
-   `TERM_PROGRAM_VERSION` are passed through from your terminal (an unknown `TERM` falls
-   back to `xterm-256color`).
+   collapsible thinking block (`/thinking` toggles it). Its status bar names the model
+   profile as `<description> (<name>)`, or just the name when the profile has no
+   description, and the provider as `agenteval bridge`, for example
+   `Qwen on the gateway (gateway-qwen) agenteval bridge`. Only these display names change:
+   OpenCode keeps its catalog entry's limits and request format. `TERM`, `COLORTERM`,
+   `TERM_PROGRAM` and `TERM_PROGRAM_VERSION` are passed through from your terminal (an
+   unknown `TERM` falls back to `xterm-256color`).
 5. **You work.** Exit the CLI as usual (`/exit`, Ctrl+C twice). If it exits with an
    error, agenteval asks `[r] resume the conversation  [f] finish`; `r` starts it again
    with `--continue`. When the CLI exits, everything the agent started in the environment
@@ -119,6 +126,15 @@ Model calls, tokens and cost are recorded in an Inspect log under
 `<checkout>/logs/dev/<session>/`; the session prints the command that opens it
 (`agenteval view <session> --log-dir <checkout>/logs/dev`) and its tokens and cost
 before the review ("cost unknown" when a model profile has no pricing).
+
+A model call that fails (no connection, or a rate limit or server error from the provider)
+is retried twice. Then the bridge returns the error to the CLI, instead of retrying
+forever while the CLI shows only a spinner. OpenCode shows the error, for example
+`Connection error. [retrying attempt #1]`, and keeps retrying with its own backoff, so the
+session goes on once the provider answers again. The retry limit does not cut a slow call
+short: one attempt may take up to 15 minutes. If calls keep failing, test the model from
+your machine with `scripts/check_model.py`
+([dev-features.md](dev-features.md#troubleshooting-and-limits)).
 
 ## Copy mode and live mode
 
@@ -286,7 +302,10 @@ Details:
 
 - Terminal only; no browser UI.
 - The bridge returns whole responses: text appears when the model has finished a turn,
-  not token by token, and each call can take up to about 2 s longer than direct.
+  not token by token, and each call can take up to about 2 s longer than direct. One
+  attempt at a call may take up to 15 minutes; a longer one is abandoned and retried.
+  OpenCode waits up to an hour for a reply, instead of its default 5 minutes, after which
+  it would send the whole turn again.
 - OpenCode's TUI has no system-prompt flag, so a harness `system_prompt` only applies to
   eval runs.
 - Claude Code with a non-Claude model (for example `qwen38-27b`) shows the model's
@@ -301,7 +320,10 @@ Details:
   Harness `options` (inspect_swe arguments) are not used in dev mode.
 - OpenCode harnesses need the model profile's `agent_models.opencode` (or a harness
   `agent_model`). `claude-sonnet-api` and `claude-sonnet-bedrock` have none, so those
-  sessions fail after the environment has started.
+  sessions fail after the environment has started. It must be a model id from OpenCode's
+  catalog, such as `openrouter/qwen/qwen3.8-27b`, not the provider's id: OpenCode runs an
+  unknown id as a custom model with no known limits (context 0, output 0) and reasoning
+  off.
 - Images, the clipboard, IDE integration (`/ide`) and OS notifications do not cross into
   the environment.
 - Git LFS files go in with their real content and are kept out of the agent's commits;

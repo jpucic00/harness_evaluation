@@ -202,6 +202,7 @@ src/agenteval/
   cli.py, runner.py          CLI (click) and the logic behind it
   dev/                       agenteval dev: session task, repo transport, CLI config sync, review
   config.py, constants.py    profile schema; in-sandbox paths and names
+  models.py                  Inspect model for a model profile, with its connection (proxy, TLS) settings
   _registry.py               Inspect entry point (registers the "tart" sandbox)
   environments/              Docker compose generation, Tart sandbox provider, provisioning
   harnesses/                 OpenCode and Claude Code install + run, inner sandbox wrapper (sandbox-exec)

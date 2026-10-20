@@ -123,13 +123,34 @@ def test_opencode_launch() -> None:
     env, args = task.opencode_launch(spec, dep_dirs=["/opt/node/bin", "/opt/rg"], home="/h")
     config = json.loads(env["OPENCODE_CONFIG_CONTENT"])
     base = f"http://localhost:{task.SHIM_PORT}/v1"  # through the reasoning relay
-    assert config["provider"] == {"openrouter": {"options": {"baseURL": base}}}
+    assert config["provider"] == {
+        "openrouter": {
+            "name": "agenteval bridge",  # display names only: the catalog entry stays
+            "options": {"baseURL": base, "headerTimeout": task.HEADER_TIMEOUT_MS},
+            "models": {"qwen/qwen3.8-27b": {"name": "Qwen 3.8 27B on OpenRouter (qwen38-27b)"}},
+        }
+    }
     assert config["model"] == "openrouter/qwen/qwen3.8-27b"
     assert env["OPENROUTER_API_KEY"] == "sk-none"
     assert env["OPENAI_BASE_URL"] == base and env["ANTHROPIC_BASE_URL"] == base
     assert env["PATH"].startswith("/opt/node/bin:/opt/rg:")
     assert env["OPENCODE_DISABLE_AUTOUPDATE"] == "1"  # harness env kept
     assert args == ["--auto", "--model", "openrouter/qwen/qwen3.8-27b"]
+
+
+def test_opencode_launch_label_without_description() -> None:
+    spec = make_spec("opencode-none")
+    spec = make_spec("opencode-none", model=spec.model.model_copy(update={"description": ""}))
+    env, _ = task.opencode_launch(spec, dep_dirs=[], home="/h")
+    models = json.loads(env["OPENCODE_CONFIG_CONTENT"])["provider"]["openrouter"]["models"]
+    assert models == {"qwen/qwen3.8-27b": {"name": "mock"}}
+
+
+def test_opencode_header_timeout_covers_the_shim() -> None:
+    from agenteval.sandbox_scripts import think_shim
+
+    # OpenCode must wait at least as long as the shim waits for the bridge (no streaming)
+    assert task.HEADER_TIMEOUT_MS >= think_shim.UPSTREAM_TIMEOUT * 1000
 
 
 def test_opencode_launch_needs_cli_model() -> None:

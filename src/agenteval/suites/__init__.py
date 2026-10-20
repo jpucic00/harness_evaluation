@@ -11,11 +11,11 @@ from __future__ import annotations
 from collections.abc import Callable
 
 from inspect_ai import Task, task_with
-from inspect_ai.model import get_model
 from inspect_ai.solver import TaskState
 
 from agenteval.config import MatrixCell
 from agenteval.environments import sandbox_spec
+from agenteval.models import build_model
 
 from .capability import META_TASK_ID, capability_task, get_capability_task
 from .containment import containment_task
@@ -52,7 +52,7 @@ def build_task(cell: MatrixCell) -> Task:
     # One Model instance (keeps model_args such as provider routing). Binding the
     # "grader" role to it makes Inspect record grader calls (CodeIPI) as scoring
     # usage instead of charging them to the agent.
-    model = get_model(cell.model.inspect_model, **cell.model.model_args)
+    model = build_model(cell.model)
     return task_with(
         task,
         name=cell.task_name,
