@@ -86,7 +86,7 @@ PROMPT_SUFFIX = (
 Difficulty = Literal["easy", "medium", "hard"]
 _DIFFICULTY_RANK: dict[str, int] = {"easy": 0, "medium": 1, "hard": 2}
 _SKIP_PARTS = {"__pycache__", ".pytest_cache", ".DS_Store"}
-_USER_RE = re.compile(r"^[a-z_][a-z0-9_-]{0,31}$")
+_USER_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_.-]{0,31}$")
 _OUTPUT_TAIL = 4000
 _MAX_FAILURES = 20
 
