@@ -260,7 +260,7 @@ async def test_export_recovery_shell_then_retry_succeeds(monkeypatch: pytest.Mon
         spec,
         scripted.io,
         USER,
-        exported.append,  # type: ignore[arg-type]
+        exported.append,
     )
     assert len(exported) == 1
     assert attached == [handle.attach_argv("agent", spec.vm_cwd, ["bash", "-l"])]
@@ -274,7 +274,7 @@ async def test_export_recovery_abandons_only_on_explicit_answer(
     scripted = ScriptedIO(["", "retry", "y", "a"])
     with pytest.raises(RuntimeError, match="tar exited 1"):
         await task.export_with_recovery(
-            RecordingSandbox(), DockerHandle("c"), make_spec("opencode-none"),  # type: ignore[arg-type]
+            RecordingSandbox(), DockerHandle("c"), make_spec("opencode-none"),
             scripted.io, USER, exported.append,
         )  # fmt: skip
     assert len(scripted.asked) == 4 and not exported
@@ -285,7 +285,7 @@ async def test_export_recovery_ctrl_c_abandons(monkeypatch: pytest.MonkeyPatch) 
     scripted = ScriptedIO([KeyboardInterrupt()])
     with pytest.raises(RuntimeError):
         await task.export_with_recovery(
-            RecordingSandbox(), DockerHandle("c"), make_spec("opencode-none"),  # type: ignore[arg-type]
+            RecordingSandbox(), DockerHandle("c"), make_spec("opencode-none"),
             scripted.io, USER, exported.append,
         )  # fmt: skip
 
@@ -308,7 +308,7 @@ async def test_resume_prompt(
     monkeypatch.setattr(task, "attach", fake_attach)
     sbox = RecordingSandbox()
     spec = make_spec("opencode-none")
-    await task.run_session(sbox, DockerHandle("c"), spec, ScriptedIO(answers).io, USER)  # type: ignore[arg-type]
+    await task.run_session(sbox, DockerHandle("c"), spec, ScriptedIO(answers).io, USER)
     assert len(seen) == launches
     assert all(argv[-1] == "--continue" for argv in seen[1:])
     calls = [cmd[:2] if cmd[0] == "pkill" else cmd[2:3] for cmd, _, _ in sbox.calls]
@@ -329,7 +329,7 @@ async def test_import_config_seeds_claude(monkeypatch: pytest.MonkeyPatch) -> No
         claude_seed={"hasCompletedOnboarding": True},
         git_identity={"user.name": "Dev"},
     )
-    await task.import_config(sbox, DockerHandle("c"), spec, USER)  # type: ignore[arg-type]
+    await task.import_config(sbox, DockerHandle("c"), spec, USER)
     seeds = [c for c in sbox.calls if c[1] is not None]
     assert len(seeds) == 1
     cmd, content, user = seeds[0]
@@ -390,3 +390,170 @@ def test_quiet_relays_only_for_dev() -> None:
     relays = [line for line in plain.splitlines() if "socat -d0" in line]
     assert len(relays) == 3 and not any("2>/dev/null" in line for line in relays)
     assert quiet.count("</dev/null 2>/dev/null &") == 3
+
+
+# ------------------------------------------------------------------- subscription
+
+TOKEN = "sk-ant-oat01-test-not-a-real-token"
+
+
+def subscription_spec(harness: str = "claude-code-bwrap", **overrides: Any) -> DevSpec:
+    fields = {"subscription_token": TOKEN} | overrides
+    return make_spec(harness, model="claude-sonnet-subscription", **fields)
+
+
+def test_render_launcher_env_files() -> None:
+    text = task.render_launcher(
+        env={"A": "1"}, cwd="/w", binary="/b", args=[], relay=False,
+        env_files={"CLAUDE_CODE_OAUTH_TOKEN": "/var/lib/x/a b"},
+    )  # fmt: skip
+    assert "CLAUDE_CODE_OAUTH_TOKEN=$(cat '/var/lib/x/a b'); export CLAUDE_CODE_OAUTH_TOKEN" in text
+    subprocess.run(["sh", "-n"], input=text, text=True, check=True)
+    with pytest.raises(ValueError):
+        task.render_launcher(
+            env={}, cwd="/w", binary="/b", args=[], relay=False, env_files={"A B": "/f"}
+        )
+
+
+def test_claude_launch_subscription() -> None:
+    spec = subscription_spec()
+    env, args = task.claude_launch(spec, models=None, home="/home/agent")
+    assert env["HTTPS_PROXY"] == f"http://127.0.0.1:{task.PROXY_PORT}"
+    assert env["CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC"] == "1"
+    assert env["CLAUDE_CONFIG_DIR"] == "/home/agent/.claude"
+    # nothing routes to the bridge or overrides the subscription login
+    assert not [k for k in env if k.startswith("ANTHROPIC_")]
+    assert TOKEN not in json.dumps([env, args])  # the launcher reads it from TOKEN_FILE
+    assert args[3:5] == ["--model", "claude-sonnet-5-5"]
+    assert TOKEN not in repr(spec)
+
+
+async def test_import_config_subscription_settings(monkeypatch: pytest.MonkeyPatch) -> None:
+    installed: list[str] = []
+
+    async def fake_install(sbox: Any, path: str, content: str, mode: str = "0755") -> None:
+        installed.append(content)
+
+    monkeypatch.setattr(task, "install_root_file", fake_install)
+    spec = subscription_spec(claude_seed={"hasCompletedOnboarding": True})
+    await task.import_config(RecordingSandbox(), DockerHandle("c"), spec, USER)
+    # an apiKeyHelper would win over the subscription token
+    assert json.loads(installed[0]) == {"skipDangerousModePermissionPrompt": True}
+
+
+class PushHandle:
+    def __init__(self) -> None:
+        self.pushed: list[tuple[Path, str, str]] = []
+
+    async def push(self, local: Path, remote: str) -> None:
+        self.pushed.append((local, local.read_text(), remote))
+
+
+async def test_push_token_bypasses_inspect() -> None:
+    sbox, handle = RecordingSandbox(), PushHandle()
+    await task.push_token(sbox, handle, subscription_spec(), USER)
+    [(local, content, remote)] = handle.pushed
+    assert content == TOKEN and remote == task.TOKEN_FILE
+    assert not local.exists()  # the host copy is gone
+    [(cmd, stdin, user)] = sbox.calls
+    assert user == "root" and cmd[-2:] == ["1001", task.TOKEN_FILE] and "0400" in cmd[2]
+    assert TOKEN not in json.dumps(sbox.calls)
+    with pytest.raises(RuntimeError, match="no subscription token"):
+        await task.push_token(sbox, handle, subscription_spec(subscription_token=None), USER)
+
+
+async def test_start_egress_proxy() -> None:
+    sbox = RecordingSandbox()
+    pins = {"api.anthropic.com": ["192.0.2.1", "192.0.2.2"]}
+    await task.start_egress_proxy(sbox, pins)
+    (log_cmd, _, log_user), (cmd, _, user) = sbox.calls
+    assert log_user == "root" and task.PROXY_USER in log_cmd and log_cmd[-1] == task.PROXY_LOG
+    assert user == task.PROXY_USER != USER.name
+    assert cmd[2] == task.EGRESS_PROXY and cmd[-1] == "--daemon"
+    allowed = [cmd[i + 1] for i, a in enumerate(cmd) if a == "--allow"]
+    assert allowed == list(task.SUBSCRIPTION_HOSTS)
+    assert cmd[cmd.index("--resolve") + 1] == "api.anthropic.com=192.0.2.1,192.0.2.2"
+
+
+class EgressSandbox(RecordingSandbox):
+    def __init__(self, policy: dict[str, Any]) -> None:
+        super().__init__()
+        self.policy = policy
+
+    async def exec(self, cmd: list[str], input: str | None = None, user: str | None = None,
+                   **kwargs: Any) -> ExecResult[str]:  # fmt: skip
+        self.calls.append((cmd, input, user))
+        out = json.dumps(self.policy) if task.EGRESS in cmd else ""
+        return ExecResult(success=True, returncode=0, stdout=out, stderr="")
+
+
+@pytest.mark.parametrize("effective", [True, False])
+async def test_subscription_needs_effective_egress_rule(
+    monkeypatch: pytest.MonkeyPatch, effective: bool
+) -> None:
+    async def fake_install(sbox: Any, path: str, content: str, mode: str = "0755") -> None:
+        pass
+
+    monkeypatch.setattr(task, "install_root_file", fake_install)
+    sbox = EgressSandbox({"effective": effective, "reason": "nft failed: denied"})
+    spec = subscription_spec()
+    if effective:
+        await task.base_setup(sbox, spec, USER)
+    else:
+        with pytest.raises(RuntimeError, match="nft failed"):
+            await task.base_setup(sbox, spec, USER)
+    # bridge sessions keep the environment's own network policy (no network on Docker)
+    await task.base_setup(sbox, make_spec("claude-code-bwrap"), USER)
+
+
+def test_build_dev_task_subscription(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    monkeypatch.chdir(tmp_path)
+    io = DevIO(out=print, ask=input, edit=lambda c, s: c, interactive=False)
+    built = task.build_dev_task(subscription_spec(), io, lambda e: None)
+    assert str(built.model) == "none/none"
+    compose = Path(str(built.sandbox.config)).read_text()
+    assert "network_mode: bridge" in compose and "NET_ADMIN" in compose
+    plain = task.build_dev_task(make_spec("claude-code-bwrap"), io, lambda e: None)
+    assert "network_mode: none" in Path(str(plain.sandbox.config)).read_text()
+
+
+@pytest.mark.parametrize(
+    ("harness", "error"),
+    [
+        ("claude-code-bwrap", None),
+        ("claude-code-none", None),
+        ("opencode-bwrap", "only Claude Code itself"),
+        ("claude-code-subagents-bwrap", "only Claude Code itself"),
+        ("claude-code-opencode-none", "only Claude Code itself"),
+    ],
+)
+def test_dev_profiles_subscription(harness: str, error: str | None) -> None:
+    from agenteval.config import ConfigError
+    from agenteval.dev import commands
+
+    args = (PROFILES, harness, "docker-ubuntu", "claude-sonnet-subscription", None)
+    if error is None:
+        assert commands._profiles(*args)[2].access == "subscription"
+    else:
+        with pytest.raises(ConfigError, match=error):
+            commands._profiles(*args)
+
+
+def test_dev_profiles_subscription_worker_refused() -> None:
+    from agenteval.config import ConfigError
+    from agenteval.dev import commands
+
+    with pytest.raises(ConfigError, match="cannot serve workers"):
+        commands._profiles(
+            PROFILES, "claude-code-subagents-bwrap", "docker-ubuntu", "mock",
+            "claude-sonnet-subscription",
+        )  # fmt: skip
+
+
+def test_dev_harness_subscription_passes_proxy() -> None:
+    from agenteval.dev import commands
+
+    h = PROFILES.harnesses["claude-code-bwrap"]
+    assert "HTTPS_PROXY" not in commands._dev_harness(h, []).inner_sandbox.env_passthrough
+    sub = commands._dev_harness(h, [], subscription=True)
+    assert sub.inner_sandbox.env_passthrough.count("HTTPS_PROXY") == 1

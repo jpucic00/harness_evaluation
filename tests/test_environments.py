@@ -52,6 +52,16 @@ def service(
 # --------------------------------------------------------------------------- compose
 
 
+def test_compose_filtered_network() -> None:
+    """agenteval dev on a subscription: a network, with egress denied by nftables."""
+    svc = docker.compose_config(docker_env(), filtered_network=True)["services"]["default"]
+    assert svc["network_mode"] == "bridge"
+    assert svc["cap_add"] == ["NET_ADMIN"]
+    allow = docker_env().model_copy(update={"egress": "allow"})
+    svc = docker.compose_config(allow, filtered_network=True)["services"]["default"]
+    assert "network_mode" not in svc and "cap_add" not in svc
+
+
 def test_compose_defaults_deny_egress() -> None:
     svc = service(docker_env())
     assert svc["image"] == IMAGE

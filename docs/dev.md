@@ -46,13 +46,17 @@ not the environment: for the company gateway, connect the VPN on your machine. T
 uses the model profile's `connection` settings; the `gateway-*` profiles connect
 directly, without a proxy ([setup.md](setup.md#other-providers)).
 
+The exception is a Claude subscription (`claude-sonnet-subscription`): Claude Code in the
+environment calls Anthropic itself, and your token goes in
+([below](#claude-subscription)).
+
 ## Options
 
 | Option | Meaning |
 | --- | --- |
 | `--harness NAME` | Harness profile, e.g. `opencode-bwrap`, `claude-code-none`. Required. |
 | `--env NAME` | Environment profile, e.g. `docker-ubuntu`, `tart-ubuntu`. Required. |
-| `--model NAME` | Model profile, e.g. `qwen38-27b`, `mock` (offline). Required. |
+| `--model NAME` | Model profile, e.g. `qwen38-27b`, `mock` (offline), `claude-sonnet-subscription` ([Claude subscription](#claude-subscription)). Required. |
 | `--subagent-model NAME` | Model for the subagents / OpenCode worker of the `claude-code-subagents-*` and `claude-code-opencode-*` harnesses (default: the harness profile's). The shipped profiles default to `gateway-qwen`, which needs `GATEWAY_BASE_URL` and `GATEWAY_API_KEY`; without them, pass another model, e.g. `qwen38-27b` or `mock-worker`. An error for harnesses without subagents. |
 | `--mount copy` (default) / `live` | How your repo gets into the environment (below). |
 | `--include GLOB` | Copy mode only: also bring in gitignored files matching GLOB, relative to the repo root (repeatable). |
@@ -135,6 +139,57 @@ session goes on once the provider answers again. The retry limit does not cut a 
 short: one attempt may take up to 15 minutes. If calls keep failing, test the model from
 your machine with `scripts/check_model.py`
 ([dev-features.md](dev-features.md#troubleshooting-and-limits)).
+
+## Claude subscription
+
+`--model claude-sonnet-subscription` runs Claude Code on your own Claude plan (Pro, Max,
+Team or Enterprise) instead of an API key. It works with `claude-code-none` and
+`claude-code-bwrap` only, and only in `agenteval dev`: eval runs refuse the profile.
+
+```sh
+claude setup-token        # once, on a machine with a browser; prints a token valid for a year
+# put it in <checkout>/.env as CLAUDE_CODE_OAUTH_TOKEN=..., or export it in your shell
+agenteval dev --harness claude-code-bwrap --env docker-ubuntu --model claude-sonnet-subscription
+```
+
+Why it works differently: Anthropic allows a subscription login only for Claude Code and
+its other own apps, and does not allow other tools to send requests with it
+([legal and compliance](https://code.claude.com/docs/en/legal-and-compliance)). Every
+other profile goes through Inspect's bridge, and Inspect would be such a tool. So with a
+subscription, Claude Code inside the environment talks to Anthropic itself:
+
+- **The token goes into the environment.** It is copied to
+  `/var/lib/agenteval-dev/claude-oauth-token` (owner: the agent user, mode 0400) with
+  `docker cp` or `ssh`. Inspect does not copy it, because Inspect logs the files it
+  writes. The launcher sets it as `CLAUDE_CODE_OAUTH_TOKEN`. **The agent, and anything it
+  runs, can read it.** A prompt injection in the repo could make the agent leak it, for
+  example into a file that comes back for review, or into a request to Anthropic made
+  with someone else's API key. If you think it leaked, revoke it on claude.ai and run
+  `claude setup-token` again.
+- **Egress is still denied for the agent user.** A small proxy
+  (`/opt/agenteval/egress_proxy.py`) runs in the environment as `nobody`, which the
+  egress rule does not cover. It listens on `127.0.0.1:13133` and opens HTTPS tunnels to
+  `api.anthropic.com` and `platform.claude.com` (token refresh) only. Claude Code uses it
+  through `HTTPS_PROXY`, which a `*-bwrap` harness relays into its sandbox like the
+  bridge port. TLS runs end to end, so the proxy never sees the token. Other hosts get
+  403 and plain HTTP gets 405. Every request is logged in
+  `/var/log/agenteval-egress-proxy.log` in the environment. The host looks up the IPv4
+  addresses of both hosts at the start and gives them to the proxy, because on Tart the
+  environment's resolver may not forward lookups.
+- **On Docker the container gets a network.** It is on Docker's default bridge with
+  `NET_ADMIN`, instead of `network_mode: none`, and `egress.sh` rejects the agent user's
+  outbound connections with nftables, as on Tart. If that rule cannot be installed, the
+  session stops before the CLI starts. The default bridge gives the container your
+  machine's DNS servers, not Docker's resolver on loopback, so the rule covers DNS too.
+- **Nothing is in the session log.** Inspect has no model in the session (`none/none`),
+  so the log has no model calls, tokens or cost. Usage counts against your plan's limits.
+  `/status` in Claude Code shows the login it uses.
+- **Your settings cannot switch it back.** agenteval's `--settings` has no
+  `apiKeyHelper`, and the copy of your `settings.json` loses `apiKeyHelper` and
+  `ANTHROPIC_*` / proxy `env` entries as for every session. Any of these would win over
+  the token.
+- **WebSearch works, WebFetch does not.** Claude Code's web search runs at Anthropic.
+  WebFetch fetches from the environment, which the proxy refuses.
 
 ## Copy mode and live mode
 
@@ -312,7 +367,8 @@ Details:
   reasoning as raw `<think>` text, because the bridge returns reasoning that way. Claude
   models and OpenCode are not affected.
 - Both shipped environments deny egress, so the agent's tools have no network in any
-  harness: `npm install` or `pip install` fail by design. Inside `*-bwrap` harnesses the
+  harness: `npm install` or `pip install` fail by design. With a Claude subscription
+  the agent can reach the two Anthropic hosts, and nothing else. Inside `*-bwrap` harnesses the
   system is also read-only. Dependencies built on macOS (`node_modules`, `.venv`) do not
   run in Linux anyway; they are not copied in copy mode.
 - Dev mode starts the real CLI binary, so a harness version that resolves to the

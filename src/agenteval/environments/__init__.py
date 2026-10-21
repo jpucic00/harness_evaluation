@@ -21,6 +21,7 @@ def sandbox_spec(
     *,
     inner_sandbox: Literal["none", "bwrap"] = "none",
     mounts: Sequence[str] = (),
+    filtered_network: bool = False,
 ) -> SandboxEnvironmentSpec:
     """Inspect sandbox for an environment profile, in a cell with ``inner_sandbox``.
 
@@ -32,6 +33,10 @@ def sandbox_spec(
 
     ``mounts`` shares host directories at the same path (``agenteval dev --mount live``
     only): a bind mount for Docker, ``tart run --dir`` for Tart.
+
+    ``filtered_network`` gives an egress-denying Docker container a network, with the
+    agent user's egress denied by ``egress.sh`` instead (see ``docker.compose_config``).
+    Tart VMs always work that way.
     """
     if env.provider == "tart":
         from .tart.sandbox import TartSandboxConfig
@@ -46,6 +51,8 @@ def sandbox_spec(
     if env.provider == "docker":
         from .docker import write_compose_file
 
-        path = write_compose_file(env, inner_sandbox=inner_sandbox, mounts=mounts)
+        path = write_compose_file(
+            env, inner_sandbox=inner_sandbox, mounts=mounts, filtered_network=filtered_network
+        )
         return SandboxEnvironmentSpec("docker", path.as_posix())
     raise ValueError(f"environment '{env.name}': unsupported provider '{env.provider}'")

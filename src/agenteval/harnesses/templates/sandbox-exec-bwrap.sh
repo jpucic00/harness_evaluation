@@ -169,9 +169,10 @@ sx_parse_port() {
     printf '%s\n' "$sx_pp"
 }
 
-# Collect the bridge ports into sx_ports.
+# Collect the bridge ports into sx_ports (and a local HTTPS proxy's, which
+# agenteval dev uses for Claude subscription sessions).
 sx_bridge_ports() {
-    for sx_url in "${OPENAI_BASE_URL-}" "${ANTHROPIC_BASE_URL-}"; do
+    for sx_url in "${OPENAI_BASE_URL-}" "${ANTHROPIC_BASE_URL-}" "${HTTPS_PROXY-}"; do
         sx_pp=$(sx_parse_port "$sx_url") || continue
         sx_add sx_ports "$sx_pp"
     done

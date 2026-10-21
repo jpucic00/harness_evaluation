@@ -1,0 +1,18 @@
+# Claude Sonnet 5.5 on your own Claude subscription (Pro, Max, Team or Enterprise).
+# For `agenteval dev` with the claude-code-none / claude-code-bwrap harnesses only.
+#
+# Anthropic allows subscription logins only for Claude Code itself, so Claude Code in
+# the environment calls api.anthropic.com directly, through an allow-listing proxy in
+# the environment (see docs/dev.md). Inspect does not see these calls: they are not in
+# the session log and have no cost; they count against your subscription's limits.
+# Eval runs refuse this profile; use claude-sonnet-api or claude-sonnet-bedrock there.
+#
+# Token: run `claude setup-token` on a machine with a browser and put the printed
+# token in CLAUDE_CODE_OAUTH_TOKEN (shell or .env). It is valid for one year. It
+# enters the environment, where the agent can read it.
+# NOTE: Anthropic is a third-party service; prompts and code go to it.
+description: Claude Sonnet 5.5 on your Claude subscription (agenteval dev only)
+access: subscription
+agent_models:
+  claude_code: claude-sonnet-5-5
+required_env: [CLAUDE_CODE_OAUTH_TOKEN]

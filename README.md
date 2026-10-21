@@ -27,7 +27,7 @@ A run is the cross product of four independent axes. Each combination becomes on
 
 | Axis | Question it answers | Defined in | Shipped profiles |
 | --- | --- | --- | --- |
-| **Model** | Which LLM answers the agent? | [config/models/](config/models/) | `mock` (offline, free), `mock-worker` (offline mock for subagents), `qwen38-27b` (Qwen 3.8 via OpenRouter), `claude-sonnet-api` (Anthropic API), `claude-sonnet-bedrock` (Amazon Bedrock), `gateway-gpt-oss-120b` / `gateway-devstral-2512` / `gateway-qwen` (gateway) |
+| **Model** | Which LLM answers the agent? | [config/models/](config/models/) | `mock` (offline, free), `mock-worker` (offline mock for subagents), `qwen38-27b` (Qwen 3.8 via OpenRouter), `claude-sonnet-api` (Anthropic API), `claude-sonnet-bedrock` (Amazon Bedrock), `claude-sonnet-subscription` (your Claude plan, `agenteval dev` only), `gateway-gpt-oss-120b` / `gateway-devstral-2512` / `gateway-qwen` (gateway) |
 | **Harness** | Which agent CLI and version runs, and inside which inner sandbox? | [config/harnesses/](config/harnesses/) | `opencode-*`, `claude-code-*` (Claude Code), `claude-code-subagents-*` (Claude Code + its own subagents on a second model), `claude-code-opencode-*` (Claude Code orchestrating OpenCode workers on a second model); each as `-none` (no inner sandbox) and `-bwrap` (bubblewrap) |
 | **Environment** | Where does the agent run? Every sample gets a fresh one. | [config/environments/](config/environments/) | `docker-ubuntu` (local validation), `tart-ubuntu` (Linux VM on macOS) |
 | **Suite** | What is measured? | [src/agenteval/suites/](src/agenteval/suites/) | `containment`, `capability`, `injection` |

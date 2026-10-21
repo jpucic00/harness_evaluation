@@ -49,6 +49,7 @@ testpaths = ["tests"]
 markers = [
     "docker: needs a running Docker daemon",
     "tart: needs Tart and a built base VM image",
+    "internet: reaches api.anthropic.com (set AGENTEVAL_INTERNET_TESTS=1 to run)",
 ]
 
 [tool.ruff]

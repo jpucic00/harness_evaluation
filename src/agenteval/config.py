@@ -65,7 +65,17 @@ class Connection(_Strict):
 
 class ModelProfile(_Named):
     description: str = ""
-    inspect_model: str
+    access: Literal["bridge", "subscription"] = "bridge"
+    """``bridge``: Inspect on the host calls ``inspect_model`` for the agent.
+
+    ``subscription``: Claude Code in the environment calls Anthropic itself with the
+    user's Claude subscription (``CLAUDE_CODE_OAUTH_TOKEN``). Anthropic allows
+    subscription logins only for Claude Code itself, so the calls cannot go through
+    Inspect: such a profile has no ``inspect_model``, no pricing, and works only in
+    ``agenteval dev`` with a ``claude_code`` harness. ``agent_models.claude_code`` is
+    the model Claude Code is started with.
+    """
+    inspect_model: str = ""
     """Inspect model id, e.g. ``openrouter/qwen/qwen3.8-27b`` or ``mockllm/model``."""
     model_args: dict[str, Any] = Field(default_factory=dict)
     connection: Connection | None = None
@@ -79,6 +89,28 @@ class ModelProfile(_Named):
     It selects the CLI's request format and prompt template; the calls themselves still
     go through the Inspect bridge to ``inspect_model``. A harness ``agent_model`` wins.
     """
+
+    @model_validator(mode="after")
+    def _access_fields(self) -> ModelProfile:
+        if self.access == "bridge":
+            if not self.inspect_model:
+                raise ValueError("inspect_model is required (unless access: subscription)")
+            return self
+        unused = [
+            name
+            for name, value in (
+                ("inspect_model", self.inspect_model),
+                ("model_args", self.model_args),
+                ("connection", self.connection),
+                ("pricing", self.pricing),
+            )
+            if value
+        ]
+        if unused:
+            raise ValueError(f"access: subscription takes no {', '.join(unused)}")
+        if not self.agent_models.get("claude_code"):
+            raise ValueError("access: subscription needs agent_models.claude_code")
+        return self
 
 
 # --------------------------------------------------------------------------- harnesses
@@ -401,6 +433,14 @@ def expand_matrix(run: RunConfig, profiles: ProfileSet) -> list[MatrixCell]:
         for h in harnesses
         if h.subagents is not None
     }
+    subscription = sorted(
+        {m.name for m in [*models, *(w[0] for w in workers.values())] if m.access != "bridge"}
+    )
+    if subscription:
+        raise ConfigError(
+            f"run '{run.name}': models {subscription} use a Claude subscription, which "
+            "works only in `agenteval dev` (eval runs need calls through Inspect)"
+        )
     return [
         MatrixCell(
             run=run.name,

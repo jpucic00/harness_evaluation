@@ -88,7 +88,7 @@ def test_build_model_with_connection_passes_http_client(
 ) -> None:
     calls: list[dict[str, Any]] = []
     monkeypatch.setattr(models, "get_model", fake_get_model(calls))
-    model = models.build_model(gateway_profile(connection=Connection(proxy=proxy)))  # type: ignore[arg-type]
+    model = models.build_model(gateway_profile(connection=Connection(proxy=proxy)))
     [kwargs] = calls
     assert kwargs["stream"] is False  # model_args kept
     assert kwargs["memoize"] is False  # Inspect's cache key ignores the client
@@ -114,7 +114,7 @@ def test_build_model_reuses_one_model_per_profile_and_tls_settings(
 
 def test_connection_rejects_unknown_proxy_mode() -> None:
     with pytest.raises(ValueError):
-        Connection(proxy="sometimes")  # type: ignore[arg-type]
+        Connection(proxy="sometimes")
     with pytest.raises(ValueError):
         Connection.model_validate({"proxy": "direct", "verify": False})  # extra keys forbidden
 
@@ -334,3 +334,42 @@ async def test_pkcs12_bundle_reaches_an_mtls_gateway_without_a_key_on_disk(
     assert output.completion == "ok"
     leftovers = [n for n in os.listdir(tempfile.gettempdir()) if n.startswith("agenteval-mtls-")]
     assert leftovers == []  # the decrypted key was on disk only while it was loaded
+
+
+# --------------------------------------------------------------------------- subscription
+
+
+def test_subscription_profile_fields() -> None:
+    profile = load_profiles(REPO / "config").models["claude-sonnet-subscription"]
+    assert profile.access == "subscription" and not profile.inspect_model
+    assert profile.agent_models["claude_code"] == "claude-sonnet-5-5"
+    assert profile.required_env == ["CLAUDE_CODE_OAUTH_TOKEN"]
+    with pytest.raises(ValueError, match="inspect_model is required"):
+        ModelProfile(name="m")
+    with pytest.raises(ValueError, match="takes no inspect_model, pricing"):
+        ModelProfile(
+            name="m",
+            access="subscription",
+            inspect_model="anthropic/claude-sonnet-5-5",
+            pricing={"input": 1, "output": 1},
+            agent_models={"claude_code": "sonnet"},
+        )
+    with pytest.raises(ValueError, match="agent_models.claude_code"):
+        ModelProfile(name="m", access="subscription")
+
+
+@pytest.mark.parametrize("field", ["models", "subagent_model"])
+def test_eval_runs_refuse_subscription(field: str) -> None:
+    from agenteval.config import ConfigError, RunConfig, expand_matrix
+
+    profiles = load_profiles(REPO / "config")
+    run = RunConfig(
+        name="r",
+        models=["claude-sonnet-subscription"] if field == "models" else ["mock"],
+        harnesses=["claude-code-subagents-none"],
+        environments=["docker-ubuntu"],
+        suites=["capability"],
+        subagent_model="claude-sonnet-subscription" if field == "subagent_model" else None,
+    )
+    with pytest.raises(ConfigError, match="only in `agenteval dev`"):
+        expand_matrix(run, profiles)

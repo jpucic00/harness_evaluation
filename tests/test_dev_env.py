@@ -8,6 +8,7 @@ reviews and applies everything with scripted answers.
 from __future__ import annotations
 
 import json
+import os
 import shutil
 import subprocess
 from pathlib import Path
@@ -133,6 +134,7 @@ def start(
     script: str,
     *,
     mount: str = "copy",
+    model: str = "mock",
 ) -> tuple[int, str]:
     output: list[str] = []
     code = commands.start_session(
@@ -140,7 +142,7 @@ def start(
         cwd=project,
         harness=harness,
         environment=environment,
-        model="mock",
+        model=model,
         mount="live" if mount == "live" else "copy",
         includes=[],
         agent_config_dir=cfg,
@@ -207,3 +209,41 @@ def test_live_mount_writes_host(environment: str, project: Path) -> None:
     assert (project / "live.txt").read_text() == "live\n"
     assert "?? live.txt" in output
     assert not (project / ".agenteval").exists()
+
+
+SUBSCRIPTION_SCRIPT = r"""
+set -u
+get="curl -sS -m 20 -o /dev/null"
+via="-x http://127.0.0.1:13133"
+$get -m 5 https://1.1.1.1 2>/dev/null && echo "DIRECT:open" || echo "DIRECT:blocked"
+echo "ANTHROPIC:$($get -w '%{http_code}' $via https://api.anthropic.com/v1/models)"
+echo "OTHER:$($get -w '%{http_connect}' $via https://example.com 2>/dev/null)"
+echo "TOKEN:$(stat -c '%U:%a' /var/lib/agenteval-dev/claude-oauth-token)"
+"$AGENTEVAL_DEV_LAUNCH" -p "say hi" </dev/null >/tmp/cli.out 2>&1; echo "CLI-EXIT:$?"
+echo "CLI:$(head -c 600 /tmp/cli.out | tr '\n' ' ')"
+"""
+
+
+@pytest.mark.internet
+@pytest.mark.skipif(
+    os.environ.get("AGENTEVAL_INTERNET_TESTS") != "1", reason="set AGENTEVAL_INTERNET_TESTS=1"
+)
+@pytest.mark.parametrize("harness", ["claude-code-none", "claude-code-bwrap"])
+def test_subscription_reaches_only_anthropic(
+    environment: str, project: Path, harness: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A fake token: Anthropic answers 401, which proves the path without a real plan."""
+    fake = "sk-ant-oat01-agenteval-fake-token"
+    monkeypatch.setenv("CLAUDE_CODE_OAUTH_TOKEN", fake)
+    code, output = start(
+        environment, project, None, harness, SUBSCRIPTION_SCRIPT, model="claude-sonnet-subscription"
+    )
+    assert code == 0, output
+    assert "DIRECT:blocked" in output  # the agent itself has no egress
+    assert "ANTHROPIC:401" in output  # the proxy tunnels to Anthropic
+    assert "OTHER:403" in output  # and nowhere else
+    assert "TOKEN:agent:400" in output
+    # Claude Code itself got through with the token, which Anthropic refused
+    assert "CLI-EXIT:0" not in output and "OAuth access token is invalid" in output
+    logs = list((constants.checkout_root() / "logs" / "dev").rglob("*.eval"))
+    assert logs and not any(fake.encode() in log.read_bytes() for log in logs)

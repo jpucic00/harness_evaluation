@@ -5,15 +5,25 @@ environment is destroyed.
 The CLI runs interactively in the user's host terminal, attached with ``docker exec -it``
 (Docker) or ``ssh -t`` (Tart). Model calls still go through Inspect's bridge on the host,
 so no API key enters the environment, and every call is recorded in the session's log.
+
+The exception is a model profile with ``access: subscription``: Claude Code then calls
+Anthropic itself with the user's subscription token, which is copied into the
+environment (never through Inspect, which logs what it writes). The agent user's egress
+stays denied; Claude Code goes through ``egress_proxy.py``, which runs as ``PROXY_USER``
+and tunnels only to ``SUBSCRIPTION_HOSTS``. Those calls are not in the session log.
 """
 
 from __future__ import annotations
 
+import contextlib
 import json
+import os
 import shlex
 import signal
+import socket
 import subprocess
 import sys
+import tempfile
 import termios
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
@@ -24,7 +34,7 @@ import anyio
 from inspect_ai import Task
 from inspect_ai.agent import AgentState, sandbox_agent_bridge
 from inspect_ai.dataset import Sample
-from inspect_ai.model import Model
+from inspect_ai.model import Model, get_model
 from inspect_ai.solver import Generate, Solver, TaskState, solver
 from inspect_ai.util import SandboxEnvironment, sandbox
 from inspect_swe._claude_code.env import (
@@ -61,6 +71,7 @@ RELAY = f"{constants.OPT_DIR}/ptyrelay.py"
 DEV_REPO = f"{constants.OPT_DIR}/dev_repo.py"
 THINK_SHIM = f"{constants.OPT_DIR}/think_shim.py"
 EGRESS = f"{constants.OPT_DIR}/egress.sh"
+EGRESS_PROXY = f"{constants.OPT_DIR}/egress_proxy.py"
 CLAUDE_SETTINGS = f"{constants.OPT_DIR}/dev/claude-settings.json"
 DEV_STATE = "/var/lib/agenteval-dev"
 IN_DIR = f"{DEV_STATE}/in"
@@ -69,6 +80,14 @@ SHARES_MOUNT = "/mnt/agenteval-shares"
 BRIDGE_PORT = 13131
 SHIM_PORT = 13132
 """OpenCode talks to ``think_shim.py`` here; it forwards to the bridge (``BRIDGE_PORT``)."""
+PROXY_PORT = 13133
+"""``egress_proxy.py`` (subscription sessions): Claude Code's ``HTTPS_PROXY``."""
+PROXY_USER = "nobody"
+"""Runs the egress proxy: any user but the agent, whose egress the environment denies."""
+PROXY_LOG = "/var/log/agenteval-egress-proxy.log"
+SUBSCRIPTION_HOSTS = ("api.anthropic.com", "platform.claude.com")
+"""Model calls, and OAuth token refresh (code.claude.com/docs/en/network-config)."""
+TOKEN_FILE = f"{DEV_STATE}/claude-oauth-token"
 HEADER_TIMEOUT_MS = 3_600_000
 """OpenCode's wait for response headers; matches think_shim's UPSTREAM_TIMEOUT (1 h)."""
 POLL_RECOVERY = 86400.0
@@ -127,6 +146,8 @@ class DevSpec:
     config_export: tuple[list[str], list[str]] = ([], [])
     """Paths (relative to the agent's HOME, and to the repo root) to bring back."""
     claude_seed: dict[str, Any] | None = None
+    subscription_token: str | None = field(default=None, repr=False)
+    """``CLAUDE_CODE_OAUTH_TOKEN`` for an ``access: subscription`` model."""
     git_identity: Mapping[str, str] = field(default_factory=dict)
     host_term: Mapping[str, str] = field(default_factory=dict)
     exec_script: str | None = None
@@ -263,42 +284,75 @@ async def env_handle(sbox: SandboxEnvironment, environment: EnvironmentProfile) 
 # ---------------------------------------------------------------- launcher
 
 
-def _env_lines(env: Mapping[str, str]) -> str:
+def _env_lines(env: Mapping[str, str], env_files: Mapping[str, str]) -> str:
     lines = []
-    for name, value in env.items():
+    for name in [*env, *env_files]:
         if not name.replace("_", "a").isalnum() or name[0].isdigit():
             raise ValueError(f"invalid environment variable name {name!r}")
+    for name, value in env.items():
         lines.append(f"{name}={shlex.quote(value)}; export {name}")
+    for name, path in env_files.items():
+        lines.append(f"{name}=$(cat {shlex.quote(path)}); export {name}")
     return "\n".join(lines)
 
 
 def render_launcher(
-    *, env: Mapping[str, str], cwd: str, binary: str, args: Sequence[str], relay: bool
+    *,
+    env: Mapping[str, str],
+    cwd: str,
+    binary: str,
+    args: Sequence[str],
+    relay: bool,
+    env_files: Mapping[str, str] | None = None,
 ) -> str:
+    """``env_files`` are variables read from a file in the environment at start (secrets
+    that must not be in the launcher, which Inspect logs when it writes it)."""
     # -I: the user's PYTHONPATH / site-packages cannot change the relay
     command = [constants.SANDBOX_EXEC, *(["python3", "-I", RELAY, "--"] if relay else [])]
     command += [binary, *args]
     return render_template(
         "dev-launch.sh",
-        {"ENV": _env_lines(env), "CWD": shlex.quote(cwd), "COMMAND": shlex.join(command)},
+        {
+            "ENV": _env_lines(env, env_files or {}),
+            "CWD": shlex.quote(cwd),
+            "COMMAND": shlex.join(command),
+        },
     )
 
 
+def subscription(spec: DevSpec) -> bool:
+    return spec.model.access == "subscription"
+
+
 def claude_launch(
-    spec: DevSpec, *, models: ClaudeCodeModels, home: str
+    spec: DevSpec, *, models: ClaudeCodeModels | None, home: str
 ) -> tuple[dict[str, str], list[str]]:
-    """Environment and arguments for an interactive Claude Code."""
+    """Environment and arguments for an interactive Claude Code.
+
+    ``models`` is the bridge routing (``None`` on a subscription). On a subscription the
+    token is not in ``env``: the launcher reads it from ``TOKEN_FILE``
+    (``CLAUDE_CODE_OAUTH_TOKEN``).
+    """
     harness = spec.harness
-    env = claude_code_agent_env(bridge_port=BRIDGE_PORT, models=models)
-    for name in (*BLOCKING_MCP_ENV, *DISABLE_AUTO_MEMORY_ENV):
-        env.pop(name, None)  # memory stays on: it is part of what comes back
-    # the TUI warns when both are set; the --settings apiKeyHelper supplies the key
-    env.pop("ANTHROPIC_AUTH_TOKEN", None)
+    if models is None:
+        env = {
+            "HTTPS_PROXY": f"http://127.0.0.1:{PROXY_PORT}",
+            "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1",
+            "IS_SANDBOX": "1",
+        }
+        model = spec.model.agent_models["claude_code"]
+    else:
+        env = claude_code_agent_env(bridge_port=BRIDGE_PORT, models=models)
+        for name in (*BLOCKING_MCP_ENV, *DISABLE_AUTO_MEMORY_ENV):
+            env.pop(name, None)  # memory stays on: it is part of what comes back
+        # the TUI warns when both are set; the --settings apiKeyHelper supplies the key
+        env.pop("ANTHROPIC_AUTH_TOKEN", None)
+        model = models.presented
     env |= harness.env
     env |= _base_env(spec, home)
     env["CLAUDE_CONFIG_DIR"] = f"{home}/.claude"  # as the claude wrapper sets it
     args = ["--dangerously-skip-permissions", "--settings", CLAUDE_SETTINGS]
-    args += ["--model", models.presented]
+    args += ["--model", model]
     subagents = harness.subagents
     if subagents is not None and subagents.runner == "claude_code" and subagents.agents:
         agents = {
@@ -449,13 +503,23 @@ async def base_setup(sbox: SandboxEnvironment, spec: DevSpec, user: SandboxUser)
         ("ptyrelay.py", RELAY, "0644"),
         ("dev_repo.py", DEV_REPO, "0644"),
         ("think_shim.py", THINK_SHIM, "0644"),
+        ("egress_proxy.py", EGRESS_PROXY, "0644"),
     ):
         await install_root_file(sbox, path, script_source(name).decode(), mode)
-    await run_root(
+    policy = await run_root(
         sbox,
         ["/bin/sh", EGRESS, "apply", spec.dev_env.egress, "--uid", str(user.uid)],
         "egress policy",
     )
+    if subscription(spec) and spec.dev_env.egress == "deny":
+        # the environment has a network for the egress proxy: the rule is all that
+        # keeps the agent off it
+        result = _last_json(policy.stdout)
+        if result.get("effective") is not True:
+            raise RuntimeError(
+                f"cannot deny the agent's egress ({result.get('reason')}); "
+                "not starting a subscription session with open network"
+            )
 
 
 async def install_cli(sbox: SandboxEnvironment, spec: DevSpec, user: str) -> tuple[str, list[str]]:
@@ -533,10 +597,9 @@ async def import_config(
         )
         if not result.success:
             raise RuntimeError(f"cannot seed {path}: {result.stderr.strip()}")
-        settings = {
-            "apiKeyHelper": f"echo {claude_harness.BRIDGE_API_KEY}",
-            "skipDangerousModePermissionPrompt": True,
-        }
+        settings: dict[str, Any] = {"skipDangerousModePermissionPrompt": True}
+        if not subscription(spec):
+            settings["apiKeyHelper"] = f"echo {claude_harness.BRIDGE_API_KEY}"
         await install_root_file(sbox, CLAUDE_SETTINGS, json.dumps(settings) + "\n", "0644")
 
 
@@ -580,6 +643,61 @@ async def start_think_shim(sbox: SandboxEnvironment, user: SandboxUser) -> None:
     result = await sbox.exec(cmd, user=user.name, timeout=60)
     if not result.success:
         raise RuntimeError(f"cannot start the reasoning relay: {result.stderr.strip()}")
+
+
+async def push_token(
+    sbox: SandboxEnvironment, handle: EnvHandle, spec: DevSpec, user: SandboxUser
+) -> None:
+    """Copy the subscription token to ``TOKEN_FILE`` (readable by the agent only).
+
+    It goes with ``docker cp`` / ``ssh``, not Inspect's ``write_file``, which would
+    put it in the session log.
+    """
+    if not spec.subscription_token:
+        raise RuntimeError("no subscription token for an access: subscription model")
+    fd, local = tempfile.mkstemp(prefix="agenteval-token-")
+    try:
+        with os.fdopen(fd, "w") as f:
+            f.write(spec.subscription_token)
+        await handle.push(Path(local), TOKEN_FILE)
+    finally:
+        os.remove(local)
+    await run_root(
+        sbox,
+        ["/bin/sh", "-c", 'chown "$1" "$2" && chmod 0400 "$2"', "sh", str(user.uid), TOKEN_FILE],
+        "token permissions",
+    )
+
+
+async def resolve_hosts(hosts: Sequence[str]) -> dict[str, list[str]]:
+    """IPv4 addresses of ``hosts`` as the host machine resolves them.
+
+    The proxy gets them pinned: on Tart the environment's resolver may not forward
+    lookups off the box (``egress.sh``'s resolver guard), so it could not resolve them.
+    """
+    found: dict[str, list[str]] = {}
+    for host in hosts:
+        try:
+            infos = await anyio.getaddrinfo(host, 443, family=socket.AF_INET)
+        except OSError as ex:
+            raise RuntimeError(f"cannot resolve {host} on this machine: {ex}") from ex
+        found[host] = list(dict.fromkeys(str(info[4][0]) for info in infos))
+    return found
+
+
+async def start_egress_proxy(sbox: SandboxEnvironment, pins: Mapping[str, Sequence[str]]) -> None:
+    """Start ``egress_proxy.py`` as ``PROXY_USER``; returns once it listens."""
+    await run_root(
+        sbox,
+        ["install", "-m", "0644", "-o", PROXY_USER, "/dev/null", PROXY_LOG],
+        "egress proxy log",
+    )
+    cmd = ["python3", "-I", EGRESS_PROXY, "--listen", str(PROXY_PORT), "--log", PROXY_LOG]
+    cmd += [a for host in SUBSCRIPTION_HOSTS for a in ("--allow", host)]
+    cmd += [a for host, ips in pins.items() for a in ("--resolve", f"{host}={','.join(ips)}")]
+    result = await sbox.exec([*cmd, "--daemon"], user=PROXY_USER, cwd="/", timeout=60)
+    if not result.success:
+        raise RuntimeError(f"cannot start the egress proxy: {result.stderr.strip()}")
 
 
 async def stop_agent(sbox: SandboxEnvironment, user: SandboxUser) -> None:
@@ -753,7 +871,13 @@ def dev_session(spec: DevSpec, io: DevIO, on_export: ExportHandler) -> Solver:
         harness = spec.harness
         aliases: dict[str, str | Model] = {}
         bridge_model: str | None = None
-        if harness.agent == "claude_code":
+        env_files: dict[str, str] = {}
+        if subscription(spec):
+            await push_token(sbox, handle, spec, user)
+            await start_egress_proxy(sbox, await resolve_hosts(SUBSCRIPTION_HOSTS))
+            env_files["CLAUDE_CODE_OAUTH_TOKEN"] = TOKEN_FILE
+            env, args = claude_launch(spec, models=None, home=user.home)
+        elif harness.agent == "claude_code":
             worker = build_model(spec.subagent_model) if spec.subagent_model else None
             subagent, routing = claude_harness.subagent_routing(
                 harness, spec.subagent_model, worker
@@ -771,16 +895,22 @@ def dev_session(spec: DevSpec, io: DevIO, on_export: ExportHandler) -> Solver:
             binary=binary,
             args=args,
             relay=harness.inner_sandbox.type == "bwrap",
+            env_files=env_files,
         )
 
-        async with sandbox_agent_bridge(
-            AgentState(messages=list(state.messages)),
-            model=bridge_model,
-            model_aliases=aliases or None,
-            port=BRIDGE_PORT,
-            poll_timeout_recovery=POLL_RECOVERY,
-            web_search=True if spec.dev_env.egress == "allow" else None,
-        ):
+        bridge = (
+            contextlib.nullcontext()
+            if subscription(spec)
+            else sandbox_agent_bridge(
+                AgentState(messages=list(state.messages)),
+                model=bridge_model,
+                model_aliases=aliases or None,
+                port=BRIDGE_PORT,
+                poll_timeout_recovery=POLL_RECOVERY,
+                web_search=True if spec.dev_env.egress == "allow" else None,
+            )
+        )
+        async with bridge:
             await install_root_file(sbox, LAUNCHER, launcher, "0755")
             await run_session(sbox, handle, spec, io, user)
         await stop_agent(sbox, user)
@@ -796,9 +926,13 @@ def build_dev_task(spec: DevSpec, io: DevIO, on_export: ExportHandler) -> Task:
         dataset=[Sample(input="agenteval dev session", id=spec.session_id)],
         solver=dev_session(spec, io, on_export),
         sandbox=sandbox_spec(
-            spec.environment, inner_sandbox=spec.harness.inner_sandbox.type, mounts=spec.mounts
+            spec.environment,
+            inner_sandbox=spec.harness.inner_sandbox.type,
+            mounts=spec.mounts,
+            filtered_network=subscription(spec),
         ),
-        model=build_model(spec.model),
+        # a subscription session has no model on the Inspect side
+        model=get_model("none") if subscription(spec) else build_model(spec.model),
         metadata={
             "agenteval_dev": {
                 "session_id": spec.session_id,

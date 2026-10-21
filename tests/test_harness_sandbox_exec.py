@@ -223,6 +223,10 @@ def test_bridge_ports_deduplicated(funcs: str, shell: str) -> None:
     }
     assert run_sh(code, shell, both) == "3001;4002;"
     assert run_sh(code, shell, base | {"OPENAI_BASE_URL": "https://api.openai.com/v1"}) == ";"
+    # agenteval dev's egress proxy (Claude subscription sessions) is relayed too
+    proxy = base | {"HTTPS_PROXY": "http://127.0.0.1:13133"}
+    assert run_sh(code, shell, proxy) == "13133;"
+    assert run_sh(code, shell, base | {"HTTPS_PROXY": "http://proxy.corp:3128"}) == ";"
 
 
 @pytest.mark.parametrize("shell", SHELLS)

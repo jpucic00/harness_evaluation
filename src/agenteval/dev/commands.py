@@ -39,7 +39,14 @@ from agenteval.dev.session import (
     save_session,
     session_dir,
 )
-from agenteval.dev.task import TERM_VARS, DevSpec, Exported, RepoTransfer, build_dev_task
+from agenteval.dev.task import (
+    SUBSCRIPTION_HOSTS,
+    TERM_VARS,
+    DevSpec,
+    Exported,
+    RepoTransfer,
+    build_dev_task,
+)
 from agenteval.report.economics import TokenUsage
 from agenteval.runner import register_model_prices
 
@@ -56,11 +63,20 @@ def _profiles(
     h = _pick(profiles.harnesses, harness, "harness")
     e = _pick(profiles.environments, environment, "environment")
     m = _pick(profiles.models, model, "model")
+    if m.access == "subscription" and (h.agent != "claude_code" or h.subagents is not None):
+        raise ConfigError(
+            f"model '{m.name}' uses a Claude subscription, which only Claude Code itself may "
+            "use: pick a claude-code harness without subagents or workers "
+            f"(not '{h.name}')"
+        )
     if h.subagents is None:
         if subagent_model:
             raise ConfigError(f"harness '{h.name}' has no subagents; drop --subagent-model")
         return h, e, m, None
-    return h, e, m, _pick(profiles.models, subagent_model or h.subagents.model, "model")
+    sub = _pick(profiles.models, subagent_model or h.subagents.model, "model")
+    if sub.access == "subscription":
+        raise ConfigError(f"model '{sub.name}' uses a Claude subscription; it cannot serve workers")
+    return h, e, m, sub
 
 
 def _git_identity(root: Path, git: bool) -> dict[str, str]:
@@ -83,9 +99,13 @@ def _usage(log: EvalLog) -> str | None:
     return f"{tokens:,} tokens, {cost} ({', '.join(sorted(usage))})"
 
 
-def _dev_harness(harness: HarnessProfile, writable: list[str]) -> HarnessProfile:
+def _dev_harness(
+    harness: HarnessProfile, writable: list[str], *, subscription: bool = False
+) -> HarnessProfile:
     inner = harness.inner_sandbox
-    passthrough = list(dict.fromkeys([*inner.env_passthrough, *TERM_VARS]))
+    # a subscription session's Claude Code reaches Anthropic through the egress proxy
+    proxy = ["HTTPS_PROXY"] if subscription else []
+    passthrough = list(dict.fromkeys([*inner.env_passthrough, *TERM_VARS, *proxy]))
     extra = list(dict.fromkeys([*inner.extra_writable_paths, *writable]))
     inner = inner.model_copy(update={"env_passthrough": passthrough, "extra_writable_paths": extra})
     return harness.model_copy(update={"inner_sandbox": inner})
@@ -181,7 +201,7 @@ def start_session(
         session_dir=sdir,
         model=m,
         subagent_model=sub,
-        harness=_dev_harness(h, mounts[1:]),
+        harness=_dev_harness(h, mounts[1:], subscription=m.access == "subscription"),
         environment=e,
         dev_env=e.model_copy(update={"ambient_secrets": False, "workspace": vm_root}),
         mount=mount,
@@ -192,6 +212,9 @@ def start_session(
         config_tar=staged.tar if staged is not None else None,
         config_export=userconfig.export_paths(config_state) if config_state else ([], []),
         claude_seed=claude_seed,
+        subscription_token=(
+            os.environ["CLAUDE_CODE_OAUTH_TOKEN"] if m.access == "subscription" else None
+        ),
         git_identity=_git_identity(info.root, info.git),
         host_term={k: os.environ[k] for k in TERM_VARS if os.environ.get(k)},
         exec_script=exec_script,
@@ -224,6 +247,12 @@ def start_session(
             f"Live mount: the agent works directly on {info.root}. Files it changes there "
             "(including .git/hooks, .git/config, Makefiles, package.json scripts, .envrc) "
             "can run on this machine later."
+        )
+    if m.access == "subscription":
+        io.out(
+            f"Subscription: Claude Code calls Anthropic itself on your Claude plan, through "
+            f"a proxy that allows only {', '.join(SUBSCRIPTION_HOSTS)}. These calls are not "
+            "in the session log. Your token is in the environment, where the agent can read it."
         )
     io.out(
         f"Starting {e.name} with {h.name} and {m.name} (session {session_id}). "

@@ -564,7 +564,13 @@ def describe_profiles(config_dir: Path) -> str:
         + _table(
             ["name", "inspect model", "pricing", "required env", "description"],
             [
-                [m.name, m.inspect_model, price(m), ",".join(m.required_env) or "-", m.description]
+                [
+                    m.name,
+                    m.inspect_model or f"- ({m.access})",
+                    price(m),
+                    ",".join(m.required_env) or "-",
+                    m.description,
+                ]
                 for m in profiles.models.values()
             ],
         )

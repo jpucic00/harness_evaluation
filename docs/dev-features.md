@@ -116,7 +116,8 @@ starts.
 | --- | --- | --- |
 | `mock`, `mock-worker` | none | Offline and free. They reply with a fixed text, so the agent does nothing useful. |
 | `qwen38-27b` | `OPENROUTER_API_KEY` | Qwen 3.8 27B through OpenRouter. |
-| `claude-sonnet-api` | `ANTHROPIC_API_KEY` | An Anthropic Console API key. A Claude subscription login cannot be used. |
+| `claude-sonnet-api` | `ANTHROPIC_API_KEY` | An Anthropic Console API key. |
+| `claude-sonnet-subscription` | `CLAUDE_CODE_OAUTH_TOKEN` (from `claude setup-token`) | Your Claude plan. `claude-code-none` / `claude-code-bwrap` only. The token goes into the environment and the calls are not in the session log: see [dev.md](dev.md#claude-subscription). |
 | `claude-sonnet-bedrock` | `AWS_REGION`, plus AWS credentials from the standard chain | Amazon Bedrock. |
 | `gateway-gpt-oss-120b`, `gateway-devstral-2512`, `gateway-qwen` | `GATEWAY_BASE_URL` (including `/v1`), `GATEWAY_API_KEY`; optional `SSL_CERT_FILE`, `MTLS_*` | The company gateway, reached from your machine over the VPN. The profiles set `connection: {proxy: direct}`, so proxy settings are ignored. `SSL_CERT_FILE` replaces the trust store with a CA bundle (default: your OS trust store); a client certificate comes from `MTLS_CERT_FILE`, `MTLS_KEY_FILE` and `MTLS_KEY_PASSWORD`, or from a `.p12`/`.pfx` in `MTLS_PKCS12_FILE` and `MTLS_PKCS12_PASSWORD` (needs `uv sync --extra mtls`, or for the tool install `uv tool install --editable <checkout> --with cryptography`). No pricing, so cost shows as unknown. |
 
@@ -209,6 +210,13 @@ agenteval dev --harness claude-code-bwrap --env docker-ubuntu --model claude-son
 
 Use `--model claude-sonnet-bedrock` for Bedrock, and `--harness claude-code-none` for no
 inner sandbox.
+
+On your Claude subscription (needs `CLAUDE_CODE_OAUTH_TOKEN`, see
+[dev.md](dev.md#claude-subscription)):
+
+```sh
+agenteval dev --harness claude-code-bwrap --env docker-ubuntu --model claude-sonnet-subscription
+```
 
 ### Claude Code with subagents: `claude-code-subagents-none`, `claude-code-subagents-bwrap`
 
