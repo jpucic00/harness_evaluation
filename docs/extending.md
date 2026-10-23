@@ -255,7 +255,8 @@ docker:
 - The runtime must be installed and registered with the Docker daemon. Check with
   `docker info --format '{{json .Runtimes}}'`. On Docker Desktop for Mac the daemon runs in
   Docker's own Linux VM, which makes adding runtimes awkward; a Linux Docker host is easier.
-- For Kata, use the runtime name your install registers (e.g. `kata-runtime`).
+- For Kata, use the runtime name your install registers: current Kata ships only the
+  containerd shim, `io.containerd.kata.v2`.
 - bubblewrap may behave differently under another runtime. Run the containment suite first:
   `fs.workspace_write` and the column's errors tell you whether `opencode-bwrap` works there,
   and `info.kernel` shows which kernel the probe saw.
@@ -265,9 +266,12 @@ docker:
 
 ### A new sandbox provider (another VM technology)
 
-A provider is an Inspect `SandboxEnvironment`. Use the Tart provider as the template:
-[environments/tart/sandbox.py](../src/agenteval/environments/tart/sandbox.py), `ssh.py` and
-`image.py`, with tests in `tests/test_tart_*.py` that use fake CLIs.
+A provider is an Inspect `SandboxEnvironment`. Use the Tart provider (a VM reached over SSH,
+[environments/tart/](../src/agenteval/environments/tart/), tests `tests/test_tart_*.py`) or the
+Docker Sandboxes provider (a microVM reached through its CLI's exec,
+[environments/sbx/](../src/agenteval/environments/sbx/), tests `tests/test_sbx.py`) as the
+template; both test against fake CLIs. File transfer and timeouts through `exec` are shared in
+[environments/guest.py](../src/agenteval/environments/guest.py).
 
 1. Implement `@sandboxenv(name="myvm") class MyVMSandboxEnvironment(SandboxEnvironment)` with
    `task_init`, `sample_init`, `sample_cleanup`, `task_cleanup`, `cli_cleanup`, `exec`,

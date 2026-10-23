@@ -1,4 +1,4 @@
-"""Environments: where every sample runs (a fresh Tart VM or Docker container)."""
+"""Environments: where every sample runs (a fresh Tart VM, Docker container or sbx microVM)."""
 
 from __future__ import annotations
 
@@ -32,7 +32,7 @@ def sandbox_spec(
     there is granted per sample through group membership.
 
     ``mounts`` shares host directories at the same path (``agenteval dev --mount live``
-    only): a bind mount for Docker, ``tart run --dir`` for Tart.
+    only): a bind mount for Docker, ``tart run --dir`` for Tart, a workspace for sbx.
 
     ``filtered_network`` gives an egress-denying Docker container a network, with the
     agent user's egress denied by ``egress.sh`` instead (see ``docker.compose_config``).
@@ -48,6 +48,20 @@ def sandbox_spec(
             fields["shared_dirs"] = tuple(mounts)
         config = TartSandboxConfig(**fields)
         return SandboxEnvironmentSpec("tart", config)
+    if env.provider == "sbx":
+        from .sbx.sandbox import SbxSandboxConfig
+
+        if env.sbx is None:  # filled in by EnvironmentProfile's validator
+            raise ValueError(f"environment '{env.name}' has no sbx settings")
+        if filtered_network:
+            raise ValueError(
+                f"environment '{env.name}': sbx environments do not support Claude subscription "
+                "sessions yet (they need the egress proxy's network); use docker or tart"
+            )
+        sbx_config = SbxSandboxConfig(
+            **env.sbx.model_dump(), default_cwd=env.workspace, shared_dirs=tuple(mounts)
+        )
+        return SandboxEnvironmentSpec("sbx", sbx_config)
     if env.provider == "docker":
         from .docker import write_compose_file
 

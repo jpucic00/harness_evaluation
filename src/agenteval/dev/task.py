@@ -253,6 +253,66 @@ class TartHandle:
         return shlex.join(self.attach_argv(user, cwd, ["bash", "-l"]))
 
 
+SBX_CLI = ("/usr/bin/env", "SBX_NO_TELEMETRY=1", "sbx")
+"""How the host runs sbx: never with its usage telemetry."""
+
+
+@dataclass(frozen=True)
+class SbxHandle:
+    """A Docker Sandboxes microVM: ``sbx exec`` / ``sbx cp`` (flags as ``docker exec``).
+
+    Commands drop the variables sbx injects (``unset``), as the provider's exec does.
+    """
+
+    sandbox: str
+    unset: tuple[str, ...] = ()
+
+    def _as(self, user: str, argv: Sequence[str]) -> list[str]:
+        # root + runuser, so the user gets its supplementary groups (see sbx exec_argv)
+        drop = [] if user in ("root", "0") else ["/usr/sbin/runuser", "-u", user, "--"]
+        return ["/usr/bin/env", *(a for n in self.unset for a in ("-u", n)), *drop, *argv]
+
+    def attach_argv(self, user: str, cwd: str, argv: Sequence[str]) -> list[str]:
+        env = [a for name in ("TERM", *TERM_VARS) for a in ("-e", name)]
+        return [
+            *SBX_CLI, "exec", "-it", "--detach-keys", DETACH_KEYS,
+            "-u", "root", "-w", cwd, *env, self.sandbox, *self._as(user, argv),
+        ]  # fmt: skip
+
+    def exec_argv(
+        self, user: str, cwd: str, argv: Sequence[str], env: Mapping[str, str]
+    ) -> list[str]:
+        pairs = [a for k, v in env.items() for a in ("-e", f"{k}={v}")]
+        return [
+            *SBX_CLI, "exec", "-u", "root", "-w", cwd, *pairs, self.sandbox, *self._as(user, argv),
+        ]  # fmt: skip
+
+    async def push(self, local: Path, remote: str) -> None:
+        await _run_host([*SBX_CLI, "cp", str(local), f"{self.sandbox}:{remote}"])
+
+    async def pull(self, remote: str, local: Path, *, user: str) -> None:
+        # sbx cp copies a symlink as a link (without -L), never its target
+        await _run_host([*SBX_CLI, "cp", f"{self.sandbox}:{remote}", str(local)])
+        if local.is_symlink() or not local.is_file():
+            local.unlink(missing_ok=True)
+            raise RuntimeError(f"{remote} in the environment is not a regular file")
+
+    def shell_hint(self, user: str, cwd: str) -> str:
+        return shlex.join(
+            [
+                *SBX_CLI,
+                "exec",
+                "-it",
+                "-u",
+                "root",
+                "-w",
+                cwd,
+                self.sandbox,
+                *self._as(user, ["bash"]),
+            ]
+        )
+
+
 async def _run_host(
     argv: Sequence[str], *, stdin: Any = None, stdout: Any = None, timeout: float = 1800
 ) -> None:
@@ -276,6 +336,11 @@ async def env_handle(sbox: SandboxEnvironment, environment: EnvironmentProfile) 
         if not connection.container:
             raise RuntimeError("cannot find the docker container of this session")
         return DockerHandle(connection.container)
+    if environment.provider == "sbx":
+        from agenteval.environments.sbx.sandbox import SbxSandboxEnvironment
+
+        sandbox = sbox.as_type(SbxSandboxEnvironment)
+        return SbxHandle(sandbox.sandbox_name, sandbox.unset_env)
     from agenteval.environments.tart.sandbox import TartSandboxEnvironment
 
     return TartHandle(sbox.as_type(TartSandboxEnvironment).target)

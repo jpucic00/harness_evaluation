@@ -696,6 +696,7 @@ def test_cleanup_targets_only_agenteval_projects(monkeypatch: pytest.MonkeyPatch
     inspect_calls = [c[3:] for c in commands.calls if c[:3] == [sys.executable, "-m", "inspect_ai"]]
     assert inspect_calls == [
         ["sandbox", "cleanup", "tart"],
+        ["sandbox", "cleanup", "sbx"],
         ["sandbox", "cleanup", "docker", "inspect-ours-i1"],
     ]
 

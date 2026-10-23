@@ -167,6 +167,51 @@ Each environment needs an image, built once. Every sample then starts from a fre
 - Each run records the image ID and the hash of the current `provision.sh` in the eval log
   metadata.
 
+### Docker Sandboxes: `uv run agenteval env build sbx-ubuntu`
+
+`sbx-ubuntu` runs every sample in its own Docker Sandboxes microVM, built from the same image
+as `docker-ubuntu`.
+
+1. Install Docker Sandboxes (on macOS it is the Homebrew cask `sbx`; see
+   https://docs.docker.com/ai/sandboxes/install/) and sign in with `sbx login`. Use the company
+   Docker account: Docker Sandboxes is a separate product under Docker's own terms, and it
+   requires a sign-in even for local sandboxes.
+2. Set the global network policy to deny-all: `sbx policy init deny-all`. agenteval's samples
+   need no network; the agent user's egress is also denied inside the VM by `egress.sh`.
+3. Turn SSH agent forwarding off: `sbx settings set ssh.agentForwardingEnabled false`, then
+   `sbx daemon restart`. With it on, every sandbox can use the keys in your SSH agent, so
+   agenteval refuses to start a sample (and checks inside each new sandbox that no agent
+   answers). `doctor` also warns while `browser.enabled` is true (sandboxed processes may open
+   URLs in your browser); consider `sbx settings set browser.enabled false`.
+4. `uv run agenteval env build sbx-ubuntu` builds the Docker image (as for `docker-ubuntu`),
+   then derives the template `agenteval/ubuntu-24.04-sbx` from it. The template adds one label,
+   `com.docker.sandboxes.start-docker="true"`, which gives root in the sandbox its full
+   capability set as in Docker's own templates. Without it root lacks `CAP_NET_ADMIN`, and
+   `egress.sh` cannot install the rule that blocks the agent user. The agent never runs as
+   root, and the microVM is the boundary, as in Tart. The build copies the template into sbx's
+   own image store with `docker save` and `sbx template load`, because sbx cannot see Docker
+   Desktop's images, and checks that the loaded template has the Docker image's ID. Run it
+   again after rebuilding the Docker image.
+
+Commands for a non-root user run as root and switch with `runuser`. `sbx exec -u USER`
+would start them with the user's primary group only, so the per-sample `agenteval-bwrap`
+membership would be lost.
+
+How sbx networking reads in the containment results: every TCP connection from the VM goes to
+sbx's host-side proxy, which accepts it inside the VM and then applies its policy. Without the
+in-VM rule, `net.internet_tcp` and `net.host_gateway` would report connections as established
+even though no byte left the VM (`sbx policy log` lists them as blocked). With the rule, the
+agent's connections are rejected in the VM, as in Tart. `host.shared_mounts` reports
+`/etc/resolv.conf`, a read-only virtiofs file that sbx shares to configure DNS.
+
+agenteval runs every `sbx` command with `SBX_NO_TELEMETRY=1`. sbx adds about forty variables to
+every command in a sandbox (proxy settings, placeholder API keys, a git config override, its CA
+bundle); agenteval removes all that the image does not define, so commands see the same
+environment as in Docker and Tart. Sandboxes are named `agenteval-sbx-<8 hex>`;
+`uv run agenteval env cleanup` removes leftovers. Not supported yet: Claude subscription
+sessions in `agenteval dev`, and per-sample figures in the report's Resources section (sbx is
+shown as one group).
+
 ### Tart: `uv run agenteval env build tart-ubuntu`
 
 1. Creates the SSH key `~/.agenteval/ssh/id_ed25519` (ed25519, no passphrase, mode 0600) if it
@@ -320,6 +365,7 @@ What leaves the machine, where it goes and when:
 | Inspect sandbox tools | `inspect-sandbox-tools.s3.us-east-2.amazonaws.com` | First use | Inspect's in-environment helper used by the model bridge. SHA-256 verified, cached in `~/Library/Caches/inspect_ai`. |
 | Base image `ubuntu:24.04` | Docker Hub | `env build docker-ubuntu` | |
 | Base VM `ghcr.io/cirruslabs/ubuntu:24.04` | GitHub Container Registry (Cirrus Labs) | First `env build tart-ubuntu` | |
+| Docker account sign-in, sbx telemetry and diagnostics | Docker (`login.docker.com`; telemetry `marlin-*.docker.com`; diagnostics S3 bucket) | `sbx login`; any `sbx` use | Docker Sandboxes requires the sign-in. agenteval sets `SBX_NO_TELEMETRY=1` on every `sbx` call; set it in your shell too when you run `sbx` yourself. What the diagnostics upload contains is not documented. |
 | Ubuntu packages | Ubuntu mirrors (arm64: `ports.ubuntu.com`) | Image builds only | Samples do not install packages. |
 | Tart | GitHub releases (`openai/tart`) | Manual install | SHA-256 checked by you (step 5). |
 | Python packages | PyPI | `uv sync` | Pinned by `uv.lock`. |

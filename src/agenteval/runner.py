@@ -385,6 +385,17 @@ def environment_identity(env: EnvironmentProfile) -> dict[str, str | None]:
     elif env.provider == "tart" and env.tart is not None:
         identity["image"] = env.tart.image
         identity["base_image"] = env.tart.base_image
+    elif env.provider == "sbx" and env.sbx is not None:
+        from agenteval.environments.docker import image_id
+        from agenteval.environments.sbx.cli import SbxError, template_id
+
+        identity["image"] = env.sbx.image
+        identity["image_id"] = image_id(env.sbx.image)
+        identity["template"] = env.sbx.template
+        try:
+            identity["template_id"] = template_id(env.sbx.template)
+        except SbxError:
+            identity["template_id"] = None
     return identity
 
 
@@ -645,6 +656,8 @@ def _env_image(env: EnvironmentProfile) -> str:
         return env.tart.image
     if env.provider == "docker" and env.docker is not None:
         return env.docker.image + (f" (runtime {env.docker.runtime})" if env.docker.runtime else "")
+    if env.provider == "sbx" and env.sbx is not None:
+        return f"{env.sbx.template} (sbx template)"
     return "-"
 
 
@@ -667,6 +680,8 @@ def build_environment(env: EnvironmentProfile, *, force: bool = False) -> None:
         from agenteval.environments.docker import build_image
 
         build_image(env, force=force)
+    elif env.provider == "sbx":
+        build_sbx_environment(env, force=force)
     else:
         from agenteval.environments.tart.image import build_image as build_tart_image
 
@@ -683,6 +698,38 @@ def build_environment(env: EnvironmentProfile, *, force: bool = False) -> None:
                 agent_user=env.agent_user,
                 workspace=env.workspace,
             )
+        )
+
+
+def build_sbx_environment(env: EnvironmentProfile, *, force: bool = False) -> None:
+    """Build the image with Docker, derive the sbx template, and load it into sbx."""
+    from agenteval.config import DockerSettings
+    from agenteval.environments.docker import build_image, image_id
+    from agenteval.environments.sbx.cli import (
+        SbxError,
+        build_template,
+        load_template,
+        template_id,
+    )
+
+    if env.sbx is None:
+        raise ConfigError(f"environment '{env.name}' has no sbx settings")
+    settings = env.sbx
+    docker_env = env.model_copy(
+        update={"provider": "docker", "docker": DockerSettings(image=settings.image), "sbx": None}
+    )
+    build_image(docker_env, force=force)
+    try:
+        build_template(settings.image, settings.template)
+        load_template(settings.template)
+        loaded = template_id(settings.template)
+    except SbxError as ex:
+        raise ConfigError(str(ex)) from ex
+    built = image_id(settings.template)
+    if loaded is None or (built and not built.removeprefix("sha256:").startswith(loaded)):
+        raise ConfigError(
+            f"sbx template {settings.template} ({loaded or 'missing'}) does not match the "
+            f"Docker image ({built or 'unknown'}) after loading it"
         )
 
 
@@ -727,7 +774,10 @@ def agenteval_docker_projects(runner: CommandRunner = run_command) -> list[str]:
 
 
 def cleanup_environments(*, echo: Echo = _echo, runner: CommandRunner = run_command) -> int:
-    """Delete leftover agenteval Tart VMs and Docker compose projects. Returns an exit code."""
+    """Delete leftover agenteval Tart VMs, sbx sandboxes and Docker compose projects.
+
+    Returns an exit code.
+    """
     code = 0
     if shutil.which("tart"):
         echo("tart: deleting leftover agenteval VMs")
@@ -737,6 +787,14 @@ def cleanup_environments(*, echo: Echo = _echo, runner: CommandRunner = run_comm
         code = 1 if rc else 0
     else:
         echo("tart: not installed, skipped")
+    if shutil.which("sbx"):
+        echo("sbx: removing leftover agenteval sandboxes")
+        rc, out = runner(_inspect_cmd("sandbox", "cleanup", "sbx"), 600)
+        if out:
+            echo(out)
+        code = code or (1 if rc else 0)
+    else:
+        echo("sbx: not installed, skipped")
     if shutil.which("docker"):
         try:
             projects = agenteval_docker_projects(runner)
@@ -814,12 +872,31 @@ def _tart_image_exists(name: str) -> bool:
     return exists
 
 
+def _sbx_status() -> tuple[list[str], list[str]]:
+    """(problems, warnings) for Docker Sandboxes, without sending sbx telemetry."""
+    from agenteval.environments.sbx.cli import SbxError, readiness_problems, setting_warnings
+
+    try:
+        problems = readiness_problems()
+        return problems, [] if problems else setting_warnings()
+    except SbxError as ex:
+        return [str(ex)], []
+
+
+def _sbx_template_id(image: str) -> str | None:
+    from agenteval.environments.sbx.cli import template_id
+
+    return template_id(image)
+
+
 def doctor(
     config_dir: Path,
     env_name: str | None = None,
     *,
     runner: CommandRunner = run_command,
     tart_image_exists: Callable[[str], bool] = _tart_image_exists,
+    sbx_status: Callable[[], tuple[list[str], list[str]]] = _sbx_status,
+    sbx_template_id: Callable[[str], str | None] = _sbx_template_id,
 ) -> list[Check]:
     """Check the host. Problems with the selected ``--env`` are failures, others warnings.
 
@@ -931,6 +1008,16 @@ def doctor(
                 )
             )
 
+    if "sbx" in providers:
+        sbx_problems, sbx_warnings = sbx_status()
+        available["sbx"] = not sbx_problems
+        for text in sbx_problems:
+            add(Check("sbx", problem, text))
+        for text in sbx_warnings:
+            add(Check("sbx", "warn", text))
+        if not sbx_problems:
+            add(Check("sbx", "ok", "signed in; SSH agent forwarding off"))
+
     for env in environments:
         label = f"env {env.name}"
         if not available.get(env.provider, False):
@@ -948,6 +1035,19 @@ def doctor(
                     + ("present" if rc == 0 else f"missing (agenteval env build {env.name})"),
                 )
             )
+        elif env.provider == "sbx" and env.sbx is not None:
+            try:
+                loaded = sbx_template_id(env.sbx.template)
+                add(
+                    Check(
+                        label,
+                        "ok" if loaded else problem,
+                        f"sbx template {env.sbx.template} "
+                        + ("present" if loaded else f"missing (agenteval env build {env.name})"),
+                    )
+                )
+            except Exception as ex:
+                add(Check(label, problem, f"could not list sbx templates: {ex}"))
         elif env.provider == "tart" and env.tart is not None:
             try:
                 exists = tart_image_exists(env.tart.image)

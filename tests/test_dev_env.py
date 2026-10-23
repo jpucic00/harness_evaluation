@@ -44,6 +44,17 @@ def _tart_ready() -> bool:
     return TART_IMAGE in names
 
 
+def _sbx_ready() -> bool:
+    from agenteval.config import SbxSettings
+    from agenteval.environments.sbx import cli
+
+    try:
+        template = SbxSettings().template
+        return not cli.readiness_problems() and cli.template_id(template) is not None
+    except cli.SbxError:
+        return False
+
+
 @pytest.fixture(
     params=[
         pytest.param(
@@ -58,6 +69,15 @@ def _tart_ready() -> bool:
             marks=[
                 pytest.mark.tart,
                 pytest.mark.skipif(not _tart_ready(), reason=f"needs Tart and {TART_IMAGE}"),
+            ],
+        ),
+        pytest.param(
+            "sbx-ubuntu",
+            marks=[
+                pytest.mark.sbx,
+                pytest.mark.skipif(
+                    not _sbx_ready(), reason="needs sbx (signed in) and the sbx-ubuntu template"
+                ),
             ],
         ),
     ]
@@ -233,6 +253,8 @@ def test_subscription_reaches_only_anthropic(
     environment: str, project: Path, harness: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """A fake token: Anthropic answers 401, which proves the path without a real plan."""
+    if environment == "sbx-ubuntu":
+        pytest.skip("sbx environments do not support subscription sessions yet")
     fake = "sk-ant-oat01-agenteval-fake-token"
     monkeypatch.setenv("CLAUDE_CODE_OAUTH_TOKEN", fake)
     code, output = start(

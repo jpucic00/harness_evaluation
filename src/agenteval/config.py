@@ -228,7 +228,7 @@ class TartSettings(_Strict):
 class DockerSettings(_Strict):
     image: str = "agenteval/ubuntu-24.04:latest"
     runtime: str | None = None
-    """Alternative OCI runtime, e.g. ``runsc`` (gVisor) or ``kata-runtime``."""
+    """Alternative OCI runtime, e.g. ``runsc`` (gVisor) or ``io.containerd.kata.v2`` (Kata)."""
     security_opt: list[str] = Field(default_factory=list)
     """security_opt for every container of this environment (stock Docker defaults if empty)."""
     bwrap_security_opt: list[str] = Field(
@@ -253,9 +253,26 @@ class DockerSettings(_Strict):
     """Per-container process limit, so one sample cannot exhaust the Docker VM."""
 
 
+class SbxSettings(_Strict):
+    """Docker Sandboxes (``sbx``): one microVM per sample, from a Docker image loaded as a
+    sandbox template by ``agenteval env build``."""
+
+    image: str = "agenteval/ubuntu-24.04:latest"
+    """Docker image built from ``provision/Dockerfile`` (the one docker-ubuntu uses)."""
+    template: str = "agenteval/ubuntu-24.04-sbx:latest"
+    """What sandboxes start from: ``image`` plus the label that gives root in the sandbox
+    its full capabilities (the egress rule needs CAP_NET_ADMIN), loaded with
+    ``sbx template load``."""
+    cpus: int | None = Field(default=None, ge=1)
+    """vCPUs per sandbox (None: sbx's default, every host CPU)."""
+    memory: str = "4g"
+    """Memory per sandbox (``sbx create --memory``; at least 512m)."""
+    create_timeout: int = Field(default=300, ge=10)
+
+
 class EnvironmentProfile(_Named):
     description: str = ""
-    provider: Literal["tart", "docker"]
+    provider: Literal["tart", "docker", "sbx"]
     agent_user: str = "agent"
     workspace: str = "/workspace"
     egress: Literal["allow", "deny"] = "deny"
@@ -266,6 +283,7 @@ class EnvironmentProfile(_Named):
     probe: ProbeSettings = Field(default_factory=ProbeSettings)
     tart: TartSettings | None = None
     docker: DockerSettings | None = None
+    sbx: SbxSettings | None = None
 
     @model_validator(mode="after")
     def _provider_settings(self) -> EnvironmentProfile:
@@ -273,6 +291,8 @@ class EnvironmentProfile(_Named):
             object.__setattr__(self, "tart", TartSettings())
         if self.provider == "docker" and self.docker is None:
             object.__setattr__(self, "docker", DockerSettings())
+        if self.provider == "sbx" and self.sbx is None:
+            object.__setattr__(self, "sbx", SbxSettings())
         return self
 
 

@@ -49,6 +49,7 @@ testpaths = ["tests"]
 markers = [
     "docker: needs a running Docker daemon",
     "tart: needs Tart and a built base VM image",
+    "sbx: needs Docker Sandboxes (signed in) and the image loaded as a template",
     "internet: reaches api.anthropic.com (set AGENTEVAL_INTERNET_TESTS=1 to run)",
 ]
 

@@ -13,7 +13,6 @@ Usage: ``SandboxEnvironmentSpec("tart", TartSandboxConfig(...))``.
 
 from __future__ import annotations
 
-import errno
 import logging
 import shlex
 import sys
@@ -27,7 +26,6 @@ import yaml
 from inspect_ai._util.error import PrerequisiteError
 from inspect_ai.util import (
     ExecResult,
-    OutputLimitExceededError,
     SandboxConnection,
     SandboxEnvironment,
     SandboxEnvironmentConfigType,
@@ -39,6 +37,16 @@ from inspect_ai.util import (
 from pydantic import BaseModel, Field, field_validator
 
 from agenteval.config import TartSettings
+from agenteval.environments.guest import (
+    FILE_TIMEOUT,
+    READ_SCRIPT,
+    WRITE_SCRIPT,
+    limit_error,
+    read_error,
+    sh,
+    write_error,
+)
+from agenteval.environments.guest import timed_out as _timed_out
 
 from . import ssh
 from .image import (
@@ -58,9 +66,6 @@ except ImportError:  # pragma: no cover
     sandbox_lifecycle_state = None  # type: ignore[assignment]
 
 logger = logging.getLogger(__name__)
-
-FILE_TIMEOUT = 600
-"""Seconds allowed for one write_file/read_file transfer."""
 
 _DEFAULT_PASSWORD: str = TartSettings.model_fields["bootstrap_password"].default
 
@@ -119,44 +124,6 @@ def _cleanup_state() -> _TartCleanupState:
     return scope.get(_TartCleanupState) if scope is not None else _process_state
 
 
-# Internal scripts: /bin/sh by absolute path with a pinned PATH, args as $1.., so the
-# image's PATH (which the agent may influence) never picks what root runs.
-_SH_PRELUDE = "PATH=/usr/sbin:/usr/bin:/sbin:/bin\nexport PATH\nunset CDPATH\n"
-
-_WRITE_SCRIPT = """\
-f=$1
-if [ -d "$f" ]; then echo "agenteval: $f: Is a directory" >&2; exit 21; fi
-mkdir -p -- "$(dirname -- "$f")" || exit 1
-cat > "$f"
-"""
-
-# Only regular files (after symlinks): a FIFO or device (e.g. a link to /dev/zero) at
-# an agent-controlled path would otherwise block or stream until FILE_TIMEOUT. head
-# bounds the transfer even if the file changes after the checks.
-_READ_SCRIPT = """\
-f=$1
-limit=$2
-if [ -d "$f" ]; then echo "agenteval: $f: Is a directory" >&2; exit 21; fi
-if [ ! -e "$f" ]; then echo "agenteval: $f: No such file or directory" >&2; exit 2; fi
-if [ ! -f "$f" ]; then echo "agenteval: $f: Not a regular file" >&2; exit 22; fi
-if [ ! -r "$f" ]; then echo "agenteval: $f: Permission denied" >&2; exit 13; fi
-size=$(stat -L -c %s -- "$f" 2>/dev/null) || size=$(wc -c < "$f") || exit 1
-size=$(printf '%s' "$size" | tr -d ' \\t\\n')
-if [ "$size" -gt "$limit" ]; then echo "agenteval: $f: file too large" >&2; exit 27; fi
-exec head -c "$((limit + 1))" -- "$f"
-"""
-
-
-def _sh(script: str, *args: str) -> list[str]:
-    return ["/bin/sh", "-c", _SH_PRELUDE + script, "sh", *args]
-
-
-def _timed_out(returncode: int, elapsed: float, timeout: int) -> bool:
-    """GNU timeout: 124 after SIGTERM, 137 after the SIGKILL escalation; 143 = SIGTERM
-    from elsewhere, so it only counts once the deadline has really passed."""
-    return returncode in (124, 137) or (returncode == 143 and elapsed >= timeout)
-
-
 _dhcp_warned = False
 
 
@@ -168,12 +135,6 @@ def _warn_dhcp_once() -> None:
     problem = dhcp_lease_problem()
     if problem is not None:
         logger.warning(problem)
-
-
-def _limit_error() -> OutputLimitExceededError:
-    return OutputLimitExceededError(
-        limit_str=SandboxEnvironmentLimits.MAX_READ_FILE_SIZE_STR, truncated_output=None
-    )
 
 
 @sandboxenv(name="tart")
@@ -430,7 +391,7 @@ class TartSandboxEnvironment(SandboxEnvironment):
         path = self._resolve_path(file)
         data = contents.encode("utf-8") if isinstance(contents, str) else contents
         result = await self._run(
-            _sh(_WRITE_SCRIPT, path),
+            sh(WRITE_SCRIPT, path),
             input=data,
             cwd="/",
             env=None,
@@ -439,15 +400,8 @@ class TartSandboxEnvironment(SandboxEnvironment):
             concurrency=True,
             output_limit=64 * 1024,
         )
-        if result.success:
-            return
-        stderr = result.stderr.decode(errors="replace").strip()
-        lowered = stderr.casefold()
-        if result.returncode == 21 or "is a directory" in lowered:
-            raise IsADirectoryError(errno.EISDIR, "Is a directory.", file)
-        if "permission denied" in lowered or "read-only file system" in lowered:
-            raise PermissionError(errno.EACCES, f"Permission denied. {stderr}", file)
-        raise RuntimeError(f"write_file({file!r}) failed in {self._vm.name}: {stderr}")
+        if not result.success:
+            raise write_error(result, file, self._vm.name)
 
     @overload
     async def read_file(self, file: str, text: Literal[True] = True) -> str: ...
@@ -460,7 +414,7 @@ class TartSandboxEnvironment(SandboxEnvironment):
         path = self._resolve_path(file)
         limit = SandboxEnvironmentLimits.MAX_READ_FILE_SIZE
         result = await self._run(
-            _sh(_READ_SCRIPT, path, str(limit)),
+            sh(READ_SCRIPT, path, str(limit)),
             input=None,
             cwd="/",
             env=None,
@@ -470,20 +424,9 @@ class TartSandboxEnvironment(SandboxEnvironment):
             output_limit=limit + 1,
         )
         if not result.success:
-            stderr = result.stderr.decode(errors="replace").strip()
-            if result.returncode == 2:
-                raise FileNotFoundError(errno.ENOENT, "No such file or directory.", file)
-            if result.returncode == 21:
-                raise IsADirectoryError(errno.EISDIR, "Is a directory.", file)
-            if result.returncode == 22:
-                raise OSError(errno.EINVAL, "Not a regular file.", file)
-            if result.returncode == 27:
-                raise _limit_error()
-            if result.returncode == 13 or "permission denied" in stderr.casefold():
-                raise PermissionError(errno.EACCES, "Permission denied.", file)
-            raise RuntimeError(f"read_file({file!r}) failed in {self._vm.name}: {stderr}")
+            raise read_error(result, file, self._vm.name)
         if len(result.stdout) > limit:  # grew between the size check and cat
-            raise _limit_error()
+            raise limit_error()
         return result.stdout.decode("utf-8") if text else result.stdout
 
     @override

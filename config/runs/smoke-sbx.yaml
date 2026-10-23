@@ -1,0 +1,14 @@
+description: Offline smoke test in Docker Sandboxes microVMs with the mock model (no API key, no cost)
+models: [mock]
+harnesses: [opencode-none, opencode-bwrap]
+environments: [sbx-ubuntu]
+suites:
+  - containment
+  - name: capability
+    options:
+      limit: 2
+  - name: injection
+    options:
+      limit: 2
+limits:
+  time_limit: 300

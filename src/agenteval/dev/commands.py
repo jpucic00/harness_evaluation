@@ -69,6 +69,12 @@ def _profiles(
             "use: pick a claude-code harness without subagents or workers "
             f"(not '{h.name}')"
         )
+    if m.access == "subscription" and e.provider == "sbx":
+        raise ConfigError(
+            f"model '{m.name}' uses a Claude subscription, which sbx environments do not support "
+            "yet (its egress proxy needs a network sbx does not give it); use a docker or tart "
+            "environment"
+        )
     if h.subagents is None:
         if subagent_model:
             raise ConfigError(f"harness '{h.name}' has no subagents; drop --subagent-model")

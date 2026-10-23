@@ -55,7 +55,7 @@ environment calls Anthropic itself, and your token goes in
 | Option | Meaning |
 | --- | --- |
 | `--harness NAME` | Harness profile, e.g. `opencode-bwrap`, `claude-code-none`. Required. |
-| `--env NAME` | Environment profile, e.g. `docker-ubuntu`, `tart-ubuntu`. Required. |
+| `--env NAME` | Environment profile, e.g. `docker-ubuntu`, `tart-ubuntu`, `sbx-ubuntu`. Required. |
 | `--model NAME` | Model profile, e.g. `qwen38-27b`, `mock` (offline), `claude-sonnet-subscription` ([Claude subscription](#claude-subscription)). Required. |
 | `--subagent-model NAME` | Model for the subagents / OpenCode worker of the `claude-code-subagents-*` and `claude-code-opencode-*` harnesses (default: the harness profile's). The shipped profiles default to `gateway-qwen`, which needs `GATEWAY_BASE_URL` and `GATEWAY_API_KEY`; without them, pass another model, e.g. `qwen38-27b` or `mock-worker`. An error for harnesses without subagents. |
 | `--mount copy` (default) / `live` | How your repo gets into the environment (below). |
@@ -91,9 +91,9 @@ The command needs an interactive terminal. Session options cannot be combined wi
    and its inner sandbox are installed as in an eval cell, at the version the harness
    profile pins. For Claude Code, the settings and subagents agenteval needs are not
    written into `~/.claude` but passed on the command line (step 4). The environment's
-   egress policy applies: `docker-ubuntu` has no network at all, and `tart-ubuntu`
-   rejects the agent user's outbound connections; the model is reached through the
-   bridge only.
+   egress policy applies: `docker-ubuntu` has no network at all, and `tart-ubuntu` and
+   `sbx-ubuntu` reject the agent user's outbound connections; the model is reached
+   through the bridge only. `sbx-ubuntu` cannot run Claude subscription sessions yet.
 3. **Your repo appears** at `/workspace` (copy mode) or at its own path (live mode), on
    the same branch and with the same `git status` as on your machine. The CLI starts in
    the same subfolder you ran agenteval from, and your git `user.name` and `user.email`
