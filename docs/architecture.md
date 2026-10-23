@@ -167,7 +167,7 @@ unless the file sets `name:`. They are validated strictly: an unknown key is an 
 | Model ([config/models/](../config/models/)) | The LLM behind the bridge | `inspect_model`, `model_args`, `connection` (proxy policy, TLS), `pricing` (USD per 1M tokens), `required_env`, `agent_models` |
 | Harness ([config/harnesses/](../config/harnesses/)) | Agent CLI, version and inner sandbox | `agent`, `version`, `inner_sandbox` (`type`, `hide_paths`, `extra_writable_paths`, `network`, `clear_env`, `env_passthrough`), `env`, `system_prompt`, `options` |
 | Environment ([config/environments/](../config/environments/)) | Where samples run | `provider` (`tart`/`docker`), `agent_user`, `workspace`, `egress`, `ambient_secrets`, `max_concurrent`, `probe`, `tart` / `docker` settings (Docker: `security_opt`, `bwrap_security_opt`, `pids_limit`, ...) |
-| Run ([config/runs/](../config/runs/)) | What to execute | `models`, `harnesses`, `environments`, `suites` (+ `options`), `epochs`, `limits`, `max_samples`, `max_tasks`, `retry_attempts`, `fail_on_error`, `log_dir`, `report_dir` |
+| Run ([config/runs/](../config/runs/)) | What to execute | `models`, `harnesses`, `environments`, `suites` (+ `options`), `epochs`, `limits`, `max_samples`, `max_tasks`, `retry_attempts`, `fail_on_error`, `log_dir`, `report_dir`, `resource_interval` |
 
 Who enforces what:
 
@@ -286,6 +286,31 @@ Each sample in the drill-down lists its score explanations, monitor evidence, er
 hit, and the `inspect view` command for its full transcript (run it as `uv run inspect view ...`,
 or use `uv run agenteval view <run-id>`).
 
+### Resources
+
+While `eval_set` runs, `agenteval.resources.ResourceSampler` reads every host process with
+`ps` every `resource_interval` seconds (default 2; `0` turns it off) and writes
+`logs/<run-id>/resources.jsonl`. The report's **Resources** section and the index's "Host CPU ·
+peak memory" column come from it. Processes are sorted into groups:
+
+| Group | What it holds |
+| --- | --- |
+| agenteval | This process and everything it starts: Inspect, the model bridge's `docker exec` / `ssh` / `sbx exec` calls, `tart run`. Children that exit between readings are counted through `getrusage`; the sampler's own work is left out. |
+| Docker | Docker Desktop's VM and helper processes (macOS), or `dockerd`, containerd and everything under the container shims (Linux). |
+| Tart VMs | Apple Virtualization VM processes whose disk image is under `~/.tart/vms/` (matched with `lsof`). |
+| Docker Sandboxes | Its daemon and microVMs. |
+| Rest of the machine | Every other process, and groups of environments the run did not use (an idle daemon). Shown for context, not part of the run. |
+
+| Number | Definition |
+| --- | --- |
+| CPU (cores) | CPU seconds used in an interval / interval length. 1 = one core fully busy. |
+| Memory | Resident memory (RSS). For a VM process this is the guest memory it has touched; Apple's virtualization does not hand back memory a guest freed. |
+| CPU time | Sum of CPU seconds over the run. |
+| Per configuration | Readings of each sample's own sandbox, joined through the container or VM name the sample records in its metadata (`agenteval_sandbox`). Docker containers are read with `docker stats` every 10 s (what the container used inside Docker's VM); a Tart VM is its host process. Avg CPU while running = CPU time / time the sandbox was observed; CPU time / resolved = CPU time of the measured samples / their resolved count. |
+
+Groups that serve several configurations at once (Docker's VM, agenteval) are pooled. To
+compare environments, run each in its own run with the same suite, `--limit` and concurrency.
+
 ## Dev sessions
 
 `agenteval dev` ([dev/](../src/agenteval/dev/), user guide in [dev.md](dev.md)) reuses the
@@ -402,4 +427,5 @@ repo.
 | [sandbox_scripts/](../src/agenteval/sandbox_scripts/) | Stdlib-only scripts uploaded into each environment: `probe.py` (runner for the check files in `cases/containment/`), `monitor.py`, `collector.py`, `egress.sh`, `case_runner.py`; for dev sessions `dev_repo.py` (repo import/export), `ptyrelay.py` and `think_shim.py` (reasoning relay for OpenCode). |
 | [dev/](../src/agenteval/dev/) | `agenteval dev`: `commands.py` (start/apply/list), `task.py` (session solver, launcher, docker/tart access), `repo.py` (snapshot, fetch, per-file 3-way apply, fast-forward), `userconfig.py` (CLI config + memory staging, sanitizing, merge back), `review.py` (summary, diffs, prompts), `session.py` (records under `.agenteval/sessions/`). |
 | [suites/](../src/agenteval/suites/) | `SUITES` registry and `build_task`, sample setup (`common.py`), the three suites, `monitors.py`. |
-| [report/](../src/agenteval/report/) | `data.py` (logs -> records -> views), `economics.py` (pure arithmetic), `build.py` + Jinja templates. |
+| [resources.py](../src/agenteval/resources.py) | Host CPU/memory sampler that runs next to `eval_set` (`resources.jsonl`). |
+| [report/](../src/agenteval/report/) | `data.py` (logs -> records -> views), `economics.py` (pure arithmetic), `resources.py` (the Resources section), `build.py` + Jinja templates. |

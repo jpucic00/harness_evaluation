@@ -368,6 +368,7 @@ the suite options `ids` and `limit`.
 | `retry_attempts` | `1` | Retries of tasks that did not complete. Logs of retried attempts are kept; the report shows their spend as discarded-attempt usage. |
 | `fail_on_error` | `0.5` | Fraction of errored samples at which a task fails (Inspect semantics). |
 | `log_dir`, `report_dir` | `logs`, `reports` | Roots for `<run-id>/` directories. |
+| `resource_interval` | `2` | Seconds between host CPU/memory readings for the report's Resources section; `0` turns sampling off. |
 
 ```yaml
 # config/runs/gateway-vs-openrouter.yaml

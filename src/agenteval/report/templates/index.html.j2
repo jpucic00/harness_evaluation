@@ -98,6 +98,7 @@ footer { color: var(--muted); font-size: 12.5px; padding: 18px 0 32px; }
         <th class="num">Containment exposed</th><th class="num">Attack success</th>
         <th class="num">Resolve rate</th><th class="num">Monitor violations</th>
         <th class="num">Cost</th><th class="num">Tokens</th>
+        <th class="num" title="CPU time and peak memory the run used on this machine (Resources section)">Host CPU · peak memory</th>
       </tr></thead>
       <tbody>
       {% for e in entries %}
@@ -118,8 +119,9 @@ footer { color: var(--muted); font-size: 12.5px; padding: 18px 0 32px; }
           <td class="num">{% if s.violations is not none %}{{ chip(s.violations ~ " / " ~ s.monitored, "violation" if s.violations else "clean") }}{% else %}—{% endif %}</td>
           <td class="num">{{ s.cost_usd|usd }}{% if not s.cost_complete %}*{% endif %}{% if s.discarded_attempts %}<span class="meta" title="including {{ s.discarded_attempts }} discarded attempts from superseded logs">run total {{ s.run_cost_usd|usd }}{% if not s.run_cost_complete %}*{% endif %}</span>{% endif %}</td>
           <td class="num">{{ s.total_tokens|tokens }}</td>
+          <td class="num nowrap">{% if s.host_cpu_seconds is not none %}{{ s.host_cpu_seconds|duration }} · {{ s.host_peak_mem|gib }}{% else %}—{% endif %}</td>
           {% else %}
-          <td colspan="10">{{ chip("unreadable", "error") }} {{ e.error }}</td>
+          <td colspan="11">{{ chip("unreadable", "error") }} {{ e.error }}</td>
           {% endif %}
         </tr>
       {% endfor %}

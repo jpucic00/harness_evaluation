@@ -313,6 +313,8 @@ class RunConfig(_Strict):
     fail_on_error: float = Field(default=0.5, ge=0)
     log_dir: str = "logs"
     report_dir: str = "reports"
+    resource_interval: float = Field(default=2.0, ge=0)
+    """Seconds between host CPU/memory readings for the report's Resources section; 0 = off."""
 
     @model_validator(mode="before")
     @classmethod

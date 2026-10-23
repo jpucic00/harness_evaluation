@@ -397,6 +397,13 @@ def prepare_sample(cell: MatrixCell, user: str | None = None) -> Solver:
         decoy_path = str(decoy["path"]) if isinstance(decoy, dict) else None
         snapshot = await take_snapshot(sbox, target, env.workspace, decoy_path)
 
+        try:
+            connection = await sbox.connection(user="root")
+            if connection.container:
+                state.metadata[constants.METADATA_SANDBOX] = connection.container
+        except Exception:  # only costs the sample its per-sample resource figures
+            pass
+
         state.store.set(constants.STORE_CANARIES, canaries)
         state.store.set(constants.STORE_RUN_START, run_start)
         state.store.set(STORE_EGRESS, egress)

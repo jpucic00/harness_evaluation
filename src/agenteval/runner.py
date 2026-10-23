@@ -20,6 +20,7 @@ import subprocess
 import sys
 import traceback
 from collections.abc import Callable, Sequence
+from contextlib import AbstractContextManager, nullcontext
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
@@ -431,6 +432,19 @@ def risk_warnings(cells: Sequence[MatrixCell]) -> list[str]:
     return warnings
 
 
+def resource_sampler(plan: RunPlan) -> AbstractContextManager[object]:
+    """Host CPU/memory sampling for the run (``resource_interval: 0`` turns it off)."""
+    if plan.run.resource_interval <= 0:
+        return nullcontext()
+    from agenteval.resources import RESOURCES_FILE, ResourceSampler
+
+    return ResourceSampler(
+        plan.log_dir / RESOURCES_FILE,
+        interval=plan.run.resource_interval,
+        providers=[cell.environment.provider for cell in plan.cells],
+    )
+
+
 def execute_run(plan: RunPlan, *, report: bool = True, echo: Echo = _echo) -> int:
     """Run the matrix with ``inspect_ai.eval_set`` and build the report. Returns an exit code."""
     load_dotenv_file()
@@ -453,21 +467,22 @@ def execute_run(plan: RunPlan, *, report: bool = True, echo: Echo = _echo) -> in
 
     success = False
     try:
-        success, logs = eval_set(
-            tasks,
-            log_dir=str(plan.log_dir),
-            max_tasks=plan.run.max_tasks,
-            max_samples=plan.max_samples,
-            max_sandboxes=plan.max_sandboxes,
-            retry_attempts=plan.run.retry_attempts,
-            fail_on_error=plan.run.fail_on_error,
-            limit=plan.limit,
-            # Keep logs of failed attempts: the report adds up their usage, which the
-            # retried log does not carry.
-            retry_cleanup=False,
-            tags=["agenteval", plan.run.name],
-            metadata=run_metadata(plan),
-        )
+        with resource_sampler(plan):
+            success, logs = eval_set(
+                tasks,
+                log_dir=str(plan.log_dir),
+                max_tasks=plan.run.max_tasks,
+                max_samples=plan.max_samples,
+                max_sandboxes=plan.max_sandboxes,
+                retry_attempts=plan.run.retry_attempts,
+                fail_on_error=plan.run.fail_on_error,
+                limit=plan.limit,
+                # Keep logs of failed attempts: the report adds up their usage, which the
+                # retried log does not carry.
+                retry_cleanup=False,
+                tags=["agenteval", plan.run.name],
+                metadata=run_metadata(plan),
+            )
         echo(f"eval set {'completed' if success else 'did not complete'}: {plan.log_dir}")
         for log in logs:
             echo(_log_summary(log))

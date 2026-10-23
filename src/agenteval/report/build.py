@@ -29,6 +29,7 @@ from agenteval.report.data import (
     build_view,
     load_logs,
 )
+from agenteval.report.resources import load_resources, resources_view
 
 REPORT_FILE = "index.html"
 DATA_FILE = "data.json"
@@ -75,7 +76,11 @@ def build_report(
     generated = datetime.now(UTC).isoformat(timespec="seconds")
     if title is None:
         title = f"agenteval · {run.run_name or log_dir.name}"
-    report = build_view(run, title=title, generated_at=generated)
+    resources = None
+    resource_log = load_resources(log_dir)
+    if resource_log is not None:
+        resources = resources_view(resource_log, run.samples, [c.key for c in run.configs])
+    report = build_view(run, title=title, generated_at=generated, resources=resources)
     out_dir.mkdir(parents=True, exist_ok=True)
     html = render_report(report, index_href=index_href)
     _write_atomic(out_dir / DATA_FILE, report.model_dump_json(indent=1))
@@ -239,6 +244,8 @@ def _env() -> Environment:
         icon=status_icon,
         pretty=fmt_json,
         meter=meter_width,
+        cores=fmt_cores,
+        gib=fmt_gib,
     )
     return env
 
@@ -303,6 +310,22 @@ def fmt_duration(seconds: float | None) -> str:
         return f"{minutes}m {secs:02d}s"
     hours, minutes = divmod(minutes, 60)
     return f"{hours}h {minutes:02d}m"
+
+
+def fmt_cores(value: float | None) -> str:
+    """CPU in cores (1.0 = one core fully busy)."""
+    if value is None or not math.isfinite(value):
+        return "—"
+    return f"{value:.2f}" if value < 10 else f"{value:.1f}"
+
+
+def fmt_gib(value: float | int | None) -> str:
+    """Bytes as GiB (MiB below 1 GiB)."""
+    if value is None or not math.isfinite(value):
+        return "—"
+    if value < 1024**3:
+        return f"{value / 1024**2:,.0f} MiB"
+    return f"{value / 1024**3:.2f} GiB"
 
 
 def fmt_ts(value: str | None) -> str:

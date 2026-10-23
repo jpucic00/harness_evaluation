@@ -63,6 +63,11 @@
   --bad-bg: rgba(208, 59, 59, 0.11);
   --bad-ink: #a32020;
   --serious: #ec835a;
+  /* categorical series slots (Resources charts), fixed per group */
+  --series-1: #2a78d6;
+  --series-2: #eb6834;
+  --series-3: #1baf7a;
+  --series-4: #eda100;
   --info: #898781;
   --info-bg: rgba(137, 135, 129, 0.14);
   --nav-bg: rgba(249, 249, 247, 0.86);
@@ -96,6 +101,10 @@
     --info-bg: rgba(137, 135, 129, 0.22);
     --nav-bg: rgba(13, 13, 13, 0.86);
     --shadow: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --series-1: #3987e5;
+  --series-2: #d95926;
+  --series-3: #199e70;
+  --series-4: #c98500;
   }
 }
 :root[data-theme="dark"] {
@@ -123,6 +132,10 @@
   --info-bg: rgba(137, 135, 129, 0.22);
   --nav-bg: rgba(13, 13, 13, 0.86);
   --shadow: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --series-1: #3987e5;
+  --series-2: #d95926;
+  --series-3: #199e70;
+  --series-4: #c98500;
 }
 * { box-sizing: border-box; }
 html { scroll-behavior: smooth; -webkit-text-size-adjust: 100%; }
@@ -275,6 +288,23 @@ table.tbl { width: 100%; border-collapse: separate; border-spacing: 0; font-size
 .controls { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin: 0 0 10px; }
 .controls label { display: inline-flex; gap: 6px; align-items: center; color: var(--ink-2); font-size: 13px; cursor: pointer; }
 .legend { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; color: var(--ink-2); font-size: 12.5px; }
+.res-charts { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 420px), 1fr)); gap: 12px; margin: 16px 0; }
+.res-chart { margin: 0; padding: 12px 14px; position: relative; }
+.res-chart h3 { margin: 0 0 6px; }
+.res-chart .legend { margin-bottom: 6px; }
+.res-chart svg { width: 100%; height: auto; display: block; touch-action: pan-y; }
+.res-chart .axis { fill: var(--muted); font-size: 11px; }
+.res-chart .gridline { stroke: var(--grid); stroke-width: 1; }
+.res-chart .band { stroke: var(--surface); stroke-width: 2; stroke-linejoin: round; }
+.res-chart .crosshair { stroke: var(--ink-2); stroke-width: 1; }
+.s1 { fill: var(--series-1); background: var(--series-1); }
+.s2 { fill: var(--series-2); background: var(--series-2); }
+.s3 { fill: var(--series-3); background: var(--series-3); }
+.s4 { fill: var(--series-4); background: var(--series-4); }
+.swatch { display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 6px; vertical-align: -1px; }
+.res-tip { position: absolute; top: 40px; pointer-events: none; background: var(--surface); border: 1px solid var(--border-strong); border-radius: 8px; padding: 6px 8px; font-size: 12px; box-shadow: var(--shadow); white-space: nowrap; z-index: 2; }
+.res-tip .t { color: var(--muted); margin-bottom: 2px; }
+.res-tip .v { font-variant-numeric: tabular-nums; margin-left: 10px; float: right; }
 
 /* problems */
 .alert { border: 1px solid color-mix(in srgb, var(--bad) 40%, transparent); background: var(--bad-bg); border-radius: 10px; padding: 10px 14px; margin: 12px 0; }
@@ -370,6 +400,7 @@ footer { color: var(--muted); font-size: 12.5px; border-top: 1px solid var(--bor
     {% if r.capability %}<a href="#capability">Capability</a>{% endif %}
     {% if r.monitor %}<a href="#monitor">Monitor{% if r.monitor.violations %} <span class="dot bad"></span>{% endif %}</a>{% endif %}
     <a href="#economics">Economics</a>
+    {% if r.resources %}<a href="#resources">Resources</a>{% endif %}
     <a href="#samples">Samples{% if s_.errors %} <span class="dot warn" title="{{ s_.errors }} errored"></span>{% endif %}</a>
   </div>
 </nav>
@@ -823,6 +854,92 @@ footer { color: var(--muted); font-size: 12.5px; border-top: 1px solid var(--bor
   </p>
 </section>
 
+{# ------------------------------------------------------------------ resources #}
+{% if r.resources %}
+{% set rv = r.resources %}
+<section class="sec" id="resources">
+  <div class="sec-head"><h2>Resources</h2></div>
+  <p class="lede">How much of this machine's CPU and memory the run used, by environment, read every {{ rv.interval|num }} s over {{ rv.duration|duration }}. CPU is in cores (1 = one core fully busy); memory is resident memory. Host: {{ rv.host.cpus or "?" }} cores, {{ rv.host.memory|gib }}.</p>
+  {% if rv.cpu_chart %}
+  <div class="res-charts">
+  {% for chart in [rv.cpu_chart, rv.mem_chart] %}
+    <figure class="panel res-chart">
+      <h3>{{ chart.title }} ({{ chart.unit }})</h3>
+      <div class="legend">{% for a in chart.areas|reverse %}<span><span class="swatch s{{ a.slot }}"></span>{{ a.label }}</span>{% endfor %}</div>
+      <svg viewBox="0 0 {{ chart.width }} {{ chart.height }}" role="img" aria-label="{{ chart.title }} in {{ chart.unit }} over the run, stacked by group. The tables below have the figures.">
+        {% for t in chart.y_ticks %}
+        <line class="gridline" x1="{{ chart.left }}" x2="{{ chart.left + chart.plot_width }}" y1="{{ t.pos }}" y2="{{ t.pos }}"/>
+        <text class="axis" x="{{ chart.left - 6 }}" y="{{ t.pos + 4 }}" text-anchor="end">{{ t.label }}</text>
+        {% endfor %}
+        {% for t in chart.x_ticks %}
+        <text class="axis" x="{{ t.pos }}" y="{{ chart.height - 6 }}" text-anchor="{{ 'start' if loop.first else 'middle' }}">{{ t.label }}</text>
+        {% endfor %}
+        {% for a in chart.areas %}<path class="band s{{ a.slot }}" d="{{ a.d }}"/>{% endfor %}
+        <line class="crosshair" x1="0" x2="0" y1="{{ chart.top }}" y2="{{ chart.top + chart.plot_height }}" visibility="hidden"/>
+        <rect class="hit" x="{{ chart.left }}" y="{{ chart.top }}" width="{{ chart.plot_width }}" height="{{ chart.plot_height }}" fill="transparent"/>
+      </svg>
+      <script type="application/json" class="res-data">{{ {"x": chart.x, "times": chart.times, "unit": chart.unit, "labels": chart.areas|map(attribute="label")|list, "slots": chart.areas|map(attribute="slot")|list, "groups": chart.areas|map(attribute="group")|list, "values": chart.values}|tojson }}</script>
+      <div class="res-tip" hidden></div>
+    </figure>
+  {% endfor %}
+  </div>
+  {% endif %}
+  <h3>By group</h3>
+  <div class="panel table-wrap">
+    <table class="tbl dense">
+      <thead><tr>
+        <th class="sticky">Group</th><th class="num">Avg CPU</th><th class="num">Peak CPU</th><th class="num">CPU time</th><th class="num">Avg memory</th><th class="num">Peak memory</th>
+      </tr></thead>
+      <tbody>
+      {% for g in rv.groups|reverse %}
+        <tr>
+          <th class="sticky"><span class="swatch s{{ g.slot }}"></span>{{ g.label }} <span class="cfg-meta" style="display:inline">{{ g.note }}</span></th>
+          <td class="num">{{ g.mean_cpu|cores }}</td><td class="num">{{ g.peak_cpu|cores }}</td><td class="num">{{ g.cpu_seconds|duration }}</td>
+          <td class="num">{{ g.mean_mem|gib }}</td><td class="num">{{ g.peak_mem|gib }}</td>
+        </tr>
+      {% endfor %}
+        <tr>
+          <th class="sticky">{{ rv.other.label }} <span class="cfg-meta" style="display:inline">{{ rv.other.note }}; not part of the run</span></th>
+          <td class="num">{{ rv.other.mean_cpu|cores }}</td><td class="num">{{ rv.other.peak_cpu|cores }}</td><td class="num">{{ rv.other.cpu_seconds|duration }}</td>
+          <td class="num">—</td><td class="num">—</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+  <h3>By configuration (per sample)</h3>
+  {% if rv.configs %}
+  <div class="panel table-wrap">
+    <table class="tbl dense">
+      <thead><tr>
+        <th class="sticky">Configuration</th><th class="num">Samples measured</th><th class="num">Avg CPU while running</th><th class="num">Peak CPU</th><th class="num">Peak memory</th><th class="num">CPU time / sample</th><th class="num">CPU time / resolved</th><th>Measured as</th>
+      </tr></thead>
+      <tbody>
+      {% for c in rv.configs %}
+        <tr data-cfg="{{ c.config }}">
+          <th class="sticky">{{ cfg_head(c.config) }}</th>
+          <td class="num">{{ c.samples }}</td>
+          <td class="num">{{ c.mean_cpu|cores }}</td><td class="num">{{ c.peak_cpu|cores }}</td><td class="num">{{ c.peak_mem|gib }}</td>
+          <td class="num">{{ c.cpu_seconds_per_sample|duration }}</td><td class="num">{{ c.cpu_seconds_per_resolved|duration }}</td>
+          <td>{{ c.source }}</td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <div class="panel"><p class="empty">No per-sample readings: no sample's container or VM was alive for a whole reading.</p></div>
+  {% endif %}
+  <p class="note">
+    Groups that serve several configurations at once (Docker's VM, agenteval) are pooled across them: to compare environments, run each in its own run with the same suite, <code>--limit</code> and concurrency.
+    Docker Desktop's memory is mostly its fixed VM reservation (set in Docker Desktop), not what the samples needed; the per-configuration table shows what each container used inside that VM.
+    Apple's virtualization does not hand back memory a VM freed, so a VM's memory only grows during its sample.
+    {% if rv.host.os and rv.host.os.startswith("linux") %}On Linux, <code>ps</code> reports CPU in whole seconds, so short peaks are smoothed.{% endif %}
+    {% if rv.unmatched_samples %}{{ rv.unmatched_samples }} sample{{ "s" if rv.unmatched_samples != 1 }} ended before a reading of {{ "their" if rv.unmatched_samples != 1 else "its" }} container or VM.{% endif %}
+    {% if rv.skipped %}{{ rv.skipped }} unreadable line{{ "s" if rv.skipped != 1 }} in resources.jsonl skipped.{% endif %}
+  </p>
+</section>
+{% endif %}
+
 {# ------------------------------------------------------------------ samples #}
 <section class="sec" id="samples">
   <div class="sec-head"><h2>Samples</h2></div>
@@ -1180,6 +1297,53 @@ footer { color: var(--muted); font-size: 12.5px; border-top: 1px solid var(--bor
   }
   window.addEventListener("hashchange", openHash);
   openHash();
+
+  // Resources charts: crosshair + one tooltip listing every group at that moment
+  document.querySelectorAll(".res-chart").forEach(function (fig) {
+    var svg = fig.querySelector("svg"), tip = fig.querySelector(".res-tip");
+    var line = fig.querySelector(".crosshair"), raw = fig.querySelector(".res-data");
+    if (!svg || !tip || !line || !raw) return;
+    var data = JSON.parse(raw.textContent);
+    var digits = 2;
+    function nearest(px) {
+      var best = 0;
+      for (var i = 1; i < data.x.length; i++) if (Math.abs(data.x[i] - px) < Math.abs(data.x[best] - px)) best = i;
+      return best;
+    }
+    function show(evt) {
+      var pt = svg.createSVGPoint(); pt.x = evt.clientX; pt.y = evt.clientY;
+      var ctm = svg.getScreenCTM(); if (!ctm) return;
+      var local = pt.matrixTransform(ctm.inverse());
+      var i = nearest(local.x);
+      line.setAttribute("x1", data.x[i]); line.setAttribute("x2", data.x[i]);
+      line.setAttribute("visibility", "visible");
+      tip.textContent = "";
+      var head = document.createElement("div"); head.className = "t";
+      head.textContent = data.times[i] + " elapsed";
+      tip.appendChild(head);
+      var total = 0;
+      for (var k = data.groups.length - 1; k >= 0; k--) {
+        var v = data.values[data.groups[k]][i]; total += v;
+        var row = document.createElement("div");
+        var sw = document.createElement("span"); sw.className = "swatch s" + data.slots[k];
+        var val = document.createElement("span"); val.className = "v"; val.textContent = v.toFixed(digits) + " " + data.unit;
+        row.appendChild(sw); row.appendChild(document.createTextNode(data.labels[k])); row.appendChild(val);
+        tip.appendChild(row);
+      }
+      if (data.groups.length > 1) {
+        var sum = document.createElement("div"); sum.className = "t";
+        sum.textContent = "Total " + total.toFixed(digits) + " " + data.unit;
+        tip.appendChild(sum);
+      }
+      tip.hidden = false;
+      var box = fig.getBoundingClientRect(), x = evt.clientX - box.left;
+      var left = x + 14 + tip.offsetWidth > box.width ? x - 14 - tip.offsetWidth : x + 14;
+      tip.style.left = Math.max(4, left) + "px";
+    }
+    function hide() { tip.hidden = true; line.setAttribute("visibility", "hidden"); }
+    svg.addEventListener("pointermove", show);
+    svg.addEventListener("pointerleave", hide);
+  });
 })();
 </script>
 </body>

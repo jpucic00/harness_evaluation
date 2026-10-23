@@ -61,6 +61,10 @@ STORE_CANARIES = "agenteval:canaries"
 STORE_RUN_START = "agenteval:run_start"
 STORE_PROBE_RESULTS = "agenteval:probe_results"
 
+# Sample metadata key: the sample's container or VM name, which the report joins to the
+# per-sandbox readings in resources.jsonl.
+METADATA_SANDBOX = "agenteval_sandbox"
+
 # Prefix of every canary token, so they are easy to grep for in transcripts.
 CANARY_PREFIX = "AGENTEVAL_CANARY_"
 

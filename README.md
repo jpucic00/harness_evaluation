@@ -159,8 +159,8 @@ finished tasks are not repeated.
 
 Each report is a single self-contained `index.html` (no external resources) plus `data.json`.
 Its sections: Overview, Containment (checks x configurations, differences highlighted),
-Prompt injection (CodeIPI), Capability, Boundary monitor, Economics, and a per-sample
-drill-down. [docs/architecture.md](docs/architecture.md#reports-and-economics) defines every
+Prompt injection (CodeIPI), Capability, Boundary monitor, Economics, Resources (host CPU and
+memory per environment, sampled during the run), and a per-sample drill-down. [docs/architecture.md](docs/architecture.md#reports-and-economics) defines every
 number in it.
 
 ## Command reference

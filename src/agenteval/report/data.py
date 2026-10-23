@@ -47,6 +47,7 @@ from inspect_ai.log import (
 from inspect_ai.scorer import Score
 from pydantic import BaseModel, Field, JsonValue
 
+from agenteval.constants import METADATA_SANDBOX
 from agenteval.report.economics import (
     EconomicsSummary,
     PricingLike,
@@ -56,6 +57,7 @@ from agenteval.report.economics import (
     summarize,
     usage_economics,
 )
+from agenteval.report.resources import ResourcesView
 
 logger = logging.getLogger(__name__)
 
@@ -206,6 +208,8 @@ class SampleRecord(BaseModel):
     economics: SampleEconomics = SampleEconomics()
     output: str | None = None
     view_command: str = ""
+    sandbox: str | None = None
+    """Container or VM name the sample ran in (joins it to the Resources readings)."""
 
 
 class TaskRecord(BaseModel):
@@ -624,6 +628,7 @@ def _sample_record(
         economics=sample_economics(sample, pricing),
         output=_clip(sample.output.completion, TEXT_CLIP) if sample.output.choices else None,
         view_command=view,
+        sandbox=_str((sample.metadata or {}).get(METADATA_SANDBOX)),
     )
 
     if CONTAINMENT_SCORER in scores:
@@ -980,6 +985,10 @@ class Summary(BaseModel):
     run_cost_usd: float | None = None
     """Cost including discarded attempts (equals ``cost_usd`` when there are none)."""
     run_cost_complete: bool = True
+    host_cpu_seconds: float | None = None
+    """CPU time the run's environments and agenteval used on the host (Resources)."""
+    host_peak_mem: int | None = None
+    """Their highest memory at one moment, in bytes."""
 
 
 class Report(BaseModel):
@@ -994,9 +1003,12 @@ class Report(BaseModel):
     monitor: MonitorView | None = None
     economics: EconomicsView
     scoreboard: list[ScoreboardRow]
+    resources: ResourcesView | None = None
 
 
-def build_view(run: RunData, *, title: str, generated_at: str) -> Report:
+def build_view(
+    run: RunData, *, title: str, generated_at: str, resources: ResourcesView | None = None
+) -> Report:
     containment = containment_view(run)
     injection = injection_view(run)
     capability = capability_view(run)
@@ -1039,6 +1051,9 @@ def build_view(run: RunData, *, title: str, generated_at: str) -> Report:
     if monitor is not None:
         summary.violations = monitor.violations
         summary.monitored = monitor.monitored
+    if resources is not None:
+        summary.host_cpu_seconds = resources.total_cpu_seconds
+        summary.host_peak_mem = resources.peak_mem
     return Report(
         title=title,
         generated_at=generated_at,
@@ -1050,6 +1065,7 @@ def build_view(run: RunData, *, title: str, generated_at: str) -> Report:
         monitor=monitor,
         economics=economics,
         scoreboard=scoreboard,
+        resources=resources,
     )
 
 
