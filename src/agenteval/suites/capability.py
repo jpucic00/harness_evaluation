@@ -59,7 +59,9 @@ from agenteval.config import MatrixCell
 from agenteval.constants import OPT_DIR
 from agenteval.harnesses import harness_solvers
 
-from .cases import (
+from .common import prepare_sample, snapshot_baseline
+from .monitors import boundary_monitor, monitor_timeout
+from .reference_cases import (
     CaseSet,
     ProtocolError,
     describe,
@@ -68,8 +70,6 @@ from .cases import (
     matches,
     parse_results,
 )
-from .common import prepare_sample, snapshot_baseline
-from .monitors import boundary_monitor, monitor_timeout
 
 TASKS_DIR = constants.cases_dir() / "capability"
 DEFAULT_SCRATCH_DIR = f"{OPT_DIR}/capability-tests"

@@ -11,19 +11,20 @@ profiles under ``config/``:
 
 from __future__ import annotations
 
+import json
 import os
 import re
 from pathlib import Path
-from typing import Any, Literal
+from typing import Annotated, Any, ClassVar, Literal, get_args
 
 import yaml
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import AfterValidator, BaseModel, ConfigDict, Field, model_validator
 
 DEFAULT_CONFIG_DIR = Path("config")
 
 
 class _Strict(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True)
+    model_config = ConfigDict(extra="forbid", frozen=True, use_attribute_docstrings=True)
 
 
 class _Named(_Strict):
@@ -31,6 +32,16 @@ class _Named(_Strict):
 
 
 # --------------------------------------------------------------------------- models
+
+DEFAULT_AGENT_MODELS: dict[str, str] = {"opencode": "openrouter/qwen/qwen3.8-27b"}
+"""``agent_models`` entries a bridge profile gets when it sets none for that agent.
+
+OpenCode's model id only selects its request format and prompt template, and it must be
+in OpenCode's bundled catalog (the harnesses turn off fetching models): an unknown id
+becomes a custom model with no known limits (context 0, output 0, reasoning off). This
+one is in the catalog, uses OpenRouter's OpenAI-style chat format, and gets OpenCode's
+generic prompt.
+"""
 
 
 class Pricing(_Strict):
@@ -88,6 +99,8 @@ class ModelProfile(_Named):
 
     It selects the CLI's request format and prompt template; the calls themselves still
     go through the Inspect bridge to ``inspect_model``. A harness ``agent_model`` wins.
+    Bridge profiles get ``DEFAULT_AGENT_MODELS`` for agents they leave out
+    (``opencode: openrouter/qwen/qwen3.8-27b``).
     """
 
     @model_validator(mode="after")
@@ -95,6 +108,7 @@ class ModelProfile(_Named):
         if self.access == "bridge":
             if not self.inspect_model:
                 raise ValueError("inspect_model is required (unless access: subscription)")
+            object.__setattr__(self, "agent_models", DEFAULT_AGENT_MODELS | self.agent_models)
             return self
         unused = [
             name
@@ -130,6 +144,27 @@ class InnerSandbox(_Strict):
     """Start from an empty environment and pass through only allow-listed variables."""
     env_passthrough: list[str] = Field(default_factory=list)
     """Extra env var names passed through when ``clear_env`` is on."""
+
+    @model_validator(mode="after")
+    def _unused_without_sandbox(self) -> InnerSandbox:
+        if self.type != "none":
+            return self
+        unused = [
+            name
+            for name in ("hide_paths", "extra_writable_paths", "env_passthrough")
+            if getattr(self, name)
+        ]
+        unused += [
+            name
+            for name in ("network", "clear_env")
+            if name in self.model_fields_set
+            and getattr(self, name) != type(self).model_fields[name].default
+        ]
+        if unused:
+            raise ValueError(
+                f"inner_sandbox {', '.join(unused)} has no effect with type: none (use type: bwrap)"
+            )
+        return self
 
 
 class SubagentDef(_Strict):
@@ -168,6 +203,8 @@ class Subagents(_Strict):
                 raise ValueError(f"subagent name {name!r}: use lowercase letters, digits, '-'")
         if self.runner == "opencode" and self.agents:
             raise ValueError("subagents.agents is only used with runner: claude_code")
+        if self.runner == "claude_code" and "opencode_version" in self.model_fields_set:
+            raise ValueError("subagents.opencode_version is only used with runner: opencode")
         return self
 
 
@@ -207,12 +244,61 @@ class ProbeSettings(_Strict):
     """
 
 
-class TartSettings(_Strict):
+_SIZE = re.compile(r"(\d+)([kmgt]?)b?", re.IGNORECASE)
+_SIZE_UNITS = {"": 1, "k": 1024, "m": 1024**2, "g": 1024**3, "t": 1024**4}
+
+
+def size_bytes(size: str) -> int:
+    """Bytes in a size string such as ``4g``, ``512m`` or ``4096MB`` (binary units)."""
+    match = _SIZE.fullmatch(size.strip())
+    if match is None:
+        raise ValueError(f"{size!r} is not a size: use a number with a unit, e.g. 4g or 512m")
+    return int(match[1]) * _SIZE_UNITS[match[2].lower()]
+
+
+def size_mb(size: str) -> int:
+    """``size`` in whole MiB (what ``tart set --memory`` takes)."""
+    return size_bytes(size) // 1024**2
+
+
+def _memory_size(size: str) -> str:
+    if size_bytes(size) < 512 * 1024**2:
+        raise ValueError(f"memory {size!r} is below the 512m minimum")
+    return size
+
+
+MemorySize = Annotated[str, AfterValidator(_memory_size)]
+"""A size string such as ``4g`` or ``512m`` (binary units, at least 512m)."""
+
+
+class _ProviderSettings(_Strict):
+    """Base of the provider blocks: rejects keys that were renamed, naming the new one."""
+
+    _renamed: ClassVar[dict[str, str]] = {}
+
+    @model_validator(mode="before")
+    @classmethod
+    def _reject_renamed(cls, data: Any) -> Any:
+        if isinstance(data, dict):
+            for old, new in cls._renamed.items():
+                if old in data:
+                    raise ValueError(f"'{old}' was renamed: use {new}")
+        return data
+
+
+class TartSettings(_ProviderSettings):
+    _renamed: ClassVar[dict[str, str]] = {
+        "cpu": "cpus",
+        "memory_mb": "memory (a size such as 4g; 4096 MB = 4g)",
+    }
+
     base_image: str = "ghcr.io/cirruslabs/ubuntu:24.04"
     image: str = "agenteval-ubuntu-24.04"
     """Local Tart VM built by ``agenteval env build``; cloned for every sample."""
-    cpu: int = Field(default=4, ge=1)
-    memory_mb: int = Field(default=4096, ge=512)
+    cpus: int = Field(default=4, ge=1)
+    """vCPUs per VM."""
+    memory: MemorySize = "4g"
+    """Memory per VM (``tart set --memory`` in MiB)."""
     network: Literal["nat", "softnet"] = "nat"
     ssh_user: str = "admin"
     ssh_key: str = "~/.agenteval/ssh/id_ed25519"
@@ -225,7 +311,7 @@ class TartSettings(_Strict):
     use_sudo: bool = True
 
 
-class DockerSettings(_Strict):
+class DockerSettings(_ProviderSettings):
     image: str = "agenteval/ubuntu-24.04:latest"
     runtime: str | None = None
     """Alternative OCI runtime, e.g. ``runsc`` (gVisor) or ``io.containerd.kata.v2`` (Kata)."""
@@ -247,13 +333,15 @@ class DockerSettings(_Strict):
     never run agent-written code as root, and why a gVisor (``runsc``) runtime is the
     better choice for bwrap cells on a shared Docker host.
     """
-    memory: str = "4g"
-    cpus: float | None = None
+    memory: MemorySize | None = "4g"
+    """Container memory limit (``mem_limit``); ``None`` = no limit."""
+    cpus: float | None = Field(default=None, gt=0)
+    """CPU limit in cores, fractions allowed (e.g. 1.5); ``None`` = no limit."""
     pids_limit: int | None = Field(default=4096, ge=64)
     """Per-container process limit, so one sample cannot exhaust the Docker VM."""
 
 
-class SbxSettings(_Strict):
+class SbxSettings(_ProviderSettings):
     """Docker Sandboxes (``sbx``): one microVM per sample, from a Docker image loaded as a
     sandbox template by ``agenteval env build``."""
 
@@ -265,8 +353,8 @@ class SbxSettings(_Strict):
     ``sbx template load``."""
     cpus: int | None = Field(default=None, ge=1)
     """vCPUs per sandbox (None: sbx's default, every host CPU)."""
-    memory: str = "4g"
-    """Memory per sandbox (``sbx create --memory``; at least 512m)."""
+    memory: MemorySize = "4g"
+    """Memory per sandbox (``sbx create --memory``)."""
     create_timeout: int = Field(default=300, ge=10)
 
 
@@ -287,6 +375,9 @@ class EnvironmentProfile(_Named):
 
     @model_validator(mode="after")
     def _provider_settings(self) -> EnvironmentProfile:
+        for other in ("tart", "docker", "sbx"):
+            if other != self.provider and getattr(self, other) is not None:
+                raise ValueError(f"{other}: settings have no effect with provider: {self.provider}")
         if self.provider == "tart" and self.tart is None:
             object.__setattr__(self, "tart", TartSettings())
         if self.provider == "docker" and self.docker is None:
@@ -400,20 +491,77 @@ def _read_yaml(path: Path) -> dict[str, Any]:
     return data
 
 
-def _load_dir[T: _Named](directory: Path, model: type[T]) -> dict[str, T]:
-    profiles: dict[str, T] = {}
+def yaml_files(directory: Path) -> list[Path]:
+    """The profile or run files in ``directory``; ``_``-prefixed ones (templates) are skipped."""
     if not directory.is_dir():
-        return profiles
-    for path in sorted([*directory.glob("*.yaml"), *directory.glob("*.yml")]):
+        return []
+    paths = [*directory.glob("*.yaml"), *directory.glob("*.yml")]
+    return sorted(p for p in paths if not p.name.startswith("_"))
+
+
+EXTENDS = "extends"
+"""Profile key naming another profile of the same kind that this one starts from."""
+
+
+def deep_merge(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]:
+    """``override`` on top of ``base``: mappings merge key by key, anything else replaces."""
+    merged = dict(base)
+    for key, value in override.items():
+        if isinstance(value, dict) and isinstance(merged.get(key), dict):
+            merged[key] = deep_merge(merged[key], value)
+        else:
+            merged[key] = value
+    return merged
+
+
+def _resolve_extends(raw: dict[str, tuple[Path, dict[str, Any]]]) -> dict[str, dict[str, Any]]:
+    """Each profile's data with its ``extends`` chain merged in (``extends`` removed)."""
+    resolved: dict[str, dict[str, Any]] = {}
+
+    def resolve(name: str, chain: tuple[str, ...]) -> dict[str, Any]:
+        if name in resolved:
+            return resolved[name]
+        path, data = raw[name]
+        parent = data.get(EXTENDS)
+        own = {k: v for k, v in data.items() if k != EXTENDS}
+        if parent is None:
+            resolved[name] = own
+            return own
+        if not isinstance(parent, str) or not parent:
+            raise ConfigError(f"{path}: extends must be a profile name")
+        if parent in chain:
+            cycle = " -> ".join([*chain[chain.index(parent) :], parent])
+            raise ConfigError(f"{path}: extends cycle {cycle}")
+        if parent not in raw:
+            raise ConfigError(
+                f"{path}: extends unknown profile '{parent}'; available: {sorted(raw)}"
+            )
+        base = {k: v for k, v in resolve(parent, (*chain, parent)).items() if k != "name"}
+        resolved[name] = deep_merge(base, own)
+        return resolved[name]
+
+    for name in raw:
+        resolve(name, (name,))
+    return resolved
+
+
+def _load_dir[T: _Named](directory: Path, model: type[T]) -> dict[str, T]:
+    raw: dict[str, tuple[Path, dict[str, Any]]] = {}
+    for path in yaml_files(directory):
+        data = _read_yaml(path)
+        name = data["name"]
+        if not isinstance(name, str):
+            raise ConfigError(f"{path}: name must be a string")
+        if name in raw:
+            raise ConfigError(f"{path}: duplicate profile name '{name}'")
+        raw[name] = (path, data)
+    resolved = _resolve_extends(raw)
+    profiles: dict[str, T] = {}
+    for name, (path, _) in raw.items():  # file order, not resolution order
         try:
-            profile = model.model_validate(_read_yaml(path))
-        except ConfigError:
-            raise
+            profiles[name] = model.model_validate(resolved[name])
         except Exception as ex:
             raise ConfigError(f"{path}: {ex}") from ex
-        if profile.name in profiles:
-            raise ConfigError(f"{path}: duplicate profile name '{profile.name}'")
-        profiles[profile.name] = profile
     return profiles
 
 
@@ -432,6 +580,59 @@ def load_run(path: Path) -> RunConfig:
         raise
     except Exception as ex:
         raise ConfigError(f"{path}: {ex}") from ex
+
+
+SCHEMA_KINDS: dict[str, type[BaseModel]] = {
+    "model": ModelProfile,
+    "harness": HarnessProfile,
+    "environment": EnvironmentProfile,
+    "run": RunConfig,
+}
+"""Profile kind -> its model; the schema of each is ``config/schema/<kind>.schema.json``."""
+
+
+def config_schema(kind: str) -> dict[str, Any]:
+    """JSON Schema of one profile kind, for editor completion in the YAML files.
+
+    ``name`` is optional (it defaults to the file stem), profiles may set ``extends`` (and
+    then leave required keys to the parent), and run ``suites`` may be bare names.
+    """
+    schema = SCHEMA_KINDS[kind].model_json_schema()
+    schema["required"] = [r for r in schema.get("required", []) if r != "name"]
+    if kind != "run":
+        schema["properties"] = {
+            EXTENDS: {
+                "description": (
+                    f"Name of another {kind} profile this one starts from: its settings are "
+                    "merged under this file's (mappings key by key, lists and other values "
+                    "replaced). Chains are allowed; cycles are rejected."
+                ),
+                "title": "Extends",
+                "type": "string",
+            },
+            **schema["properties"],
+        }
+        # a profile that extends another may leave the required keys to its parent
+        required = schema.pop("required")
+        if required:
+            schema["if"] = {"required": [EXTENDS]}
+            schema["else"] = {"required": required}
+    if kind == "run":
+        names = {"enum": list(get_args(SuiteName)), "type": "string"}
+        items = schema["properties"]["suites"]["items"]
+        schema["properties"]["suites"]["items"] = {"anyOf": [names, items]}
+    return {"$schema": "https://json-schema.org/draft/2020-12/schema", **schema}
+
+
+def write_config_schemas(schema_dir: Path) -> list[Path]:
+    """Write every kind's schema to ``schema_dir`` (regenerate: scripts/gen_config_schema.py)."""
+    schema_dir.mkdir(parents=True, exist_ok=True)
+    paths = []
+    for kind in SCHEMA_KINDS:
+        path = schema_dir / f"{kind}.schema.json"
+        path.write_text(json.dumps(config_schema(kind), indent=2) + "\n")
+        paths.append(path)
+    return paths
 
 
 def expand_matrix(run: RunConfig, profiles: ProfileSet) -> list[MatrixCell]:

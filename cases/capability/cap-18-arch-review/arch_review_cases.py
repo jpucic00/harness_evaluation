@@ -5,7 +5,7 @@ are one of the violation's accepted locations (the import or the offending
 statements). The decoy modules follow the rules and must not be reported.
 """
 
-from agenteval.suites.cases import Case
+from agenteval.suites.reference_cases import Case
 
 SETUP = """
 import json

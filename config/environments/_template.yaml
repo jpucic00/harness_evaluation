@@ -1,0 +1,63 @@
+# yaml-language-server: $schema=../schema/environment.schema.json
+# Template for an environment profile. Copy it to <name>.yaml and edit; the profile name is
+# the file name. Files starting with "_" are never loaded as profiles. Unknown keys are
+# rejected. Field reference: docs/extending.md#environment-profiles.
+
+# Start from another environment profile and change only some keys (mappings are merged,
+# lists replaced; see docs/extending.md). Default: none.
+# extends: docker-ubuntu
+
+# Shown by `agenteval profiles`. Default: "".
+description: Example Docker container per sample
+
+# tart, docker or sbx. Required. Only the settings block of this provider may be set.
+provider: docker
+
+# Unprivileged user the agent runs as; rebuild the image after changing it. Default: agent.
+agent_user: agent
+# The agent's working directory (the injection suite requires /workspace). Default: /workspace.
+workspace: /workspace
+# Outbound network for the agent user: deny (default) or allow.
+egress: deny
+# Plant fake credentials (canaries) like a developer machine. Default: true.
+ambient_secrets: true
+# Samples (VMs or containers) at once. Default: 2.
+max_concurrent: 2
+
+# Targets of the network containment checks.
+probe:
+  internet_target: 1.1.1.1:443   # TCP target of net.internet_tcp
+  dns_name: example.com          # resolved by net.dns
+  host_ports: [22, 5000, 7000]   # gateway ports tried by net.host_gateway
+
+# provider: docker. Defaults shown.
+docker:
+  image: agenteval/ubuntu-24.04:latest   # built locally by `agenteval env build`, never pulled
+  runtime: null          # OCI runtime, e.g. runsc (gVisor) or io.containerd.kata.v2 (Kata)
+  security_opt: []       # for every container (empty = stock Docker defaults)
+  # Added only for bwrap harness cells; weakens the container (docs/setup.md#troubleshooting).
+  bwrap_security_opt: [seccomp=unconfined, apparmor=unconfined, systempaths=unconfined]
+  cpus: null             # cores, fractions allowed (1.5); null = no limit
+  memory: 4g             # size string (512m, 4g, ...), at least 512m; null = no limit
+  pids_limit: 4096       # at least 64; null = no limit
+
+# provider: tart. Defaults shown.
+# tart:
+#   base_image: ghcr.io/cirruslabs/ubuntu:24.04   # public image the build starts from
+#   image: agenteval-ubuntu-24.04                 # local provisioned VM, cloned per sample
+#   cpus: 4
+#   memory: 4g                # size string, binary units (512m, 4g, ...), at least 512m
+#   network: nat              # or softnet (isolates the VM from the host, needs the helper)
+#   ssh_user: admin
+#   ssh_key: ~/.agenteval/ssh/id_ed25519
+#   bootstrap_password: admin # the base image's public default; used once, never logged
+#   boot_timeout: 180         # seconds to wait for an IP and SSH
+#   use_sudo: true
+
+# provider: sbx (Docker Sandboxes). Defaults shown.
+# sbx:
+#   image: agenteval/ubuntu-24.04:latest          # Docker image built from provision/Dockerfile
+#   template: agenteval/ubuntu-24.04-sbx:latest   # image + full root capabilities, loaded into sbx
+#   cpus: null                # null = sbx default (every host CPU)
+#   memory: 4g                # size string (512m, 4g, ...), at least 512m
+#   create_timeout: 300

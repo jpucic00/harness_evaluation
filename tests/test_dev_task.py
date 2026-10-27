@@ -316,6 +316,36 @@ async def test_resume_prompt(
     assert calls == [[task.THINK_SHIM], ["pkill", "-KILL"]] * launches
 
 
+async def test_exec_output_control_characters_are_escaped(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """``--exec`` output comes from the environment: escapes must not reach the terminal."""
+
+    async def fake_run_process(argv: list[str], check: bool) -> subprocess.CompletedProcess[bytes]:
+        return subprocess.CompletedProcess(argv, 0, b"ok\x1b[2J\tdone\n", b"warn\x07\n")
+
+    monkeypatch.setattr(task.anyio, "run_process", fake_run_process)
+    scripted = ScriptedIO([])
+    spec = make_spec("opencode-none", exec_script="true")
+    await task.run_session(RecordingSandbox(), DockerHandle("c"), spec, scripted.io, USER)
+    assert scripted.output == ["ok\\x1b[2J\tdone\nwarn\\x07\n"]
+
+
+async def test_export_failure_message_is_escaped(monkeypatch: pytest.MonkeyPatch) -> None:
+    async def fake_export(*args: Any) -> task.Exported:
+        raise RuntimeError("no JSON result in output: \x1b]0;title\x07")
+
+    monkeypatch.setattr(task, "export", fake_export)
+    scripted = ScriptedIO(["a"])
+    with pytest.raises(RuntimeError):
+        await task.export_with_recovery(
+            RecordingSandbox(), DockerHandle("c"), make_spec("opencode-none"),
+            scripted.io, USER, lambda exported: None,
+        )  # fmt: skip
+    assert "\x1b" not in scripted.output[0]
+    assert "output: \\x1b]0;title\\x07" in scripted.output[0]
+
+
 async def test_import_config_seeds_claude(monkeypatch: pytest.MonkeyPatch) -> None:
     installed: list[tuple[str, str, str]] = []
 
@@ -557,3 +587,36 @@ def test_dev_harness_subscription_passes_proxy() -> None:
     assert "HTTPS_PROXY" not in commands._dev_harness(h, []).inner_sandbox.env_passthrough
     sub = commands._dev_harness(h, [], subscription=True)
     assert sub.inner_sandbox.env_passthrough.count("HTTPS_PROXY") == 1
+
+
+# ------------------------------------------------------------------- spend limits
+
+
+def test_spend_limits_are_scoped_and_opt_in() -> None:
+    assert task.spend_limits(make_spec("claude-code-none")) == []
+    token, cost = task.spend_limits(make_spec("claude-code-none", token_limit=500, cost_limit=2.5))
+    assert (token.limit, getattr(token, "type", None)) == (500, "output")
+    assert cost.limit == 2.5
+
+
+def test_tripped_limit_only_for_own_limits(monkeypatch: pytest.MonkeyPatch) -> None:
+    from types import SimpleNamespace
+
+    from inspect_ai.util import LimitExceededError, token_limit
+
+    ours, other = token_limit(1), token_limit(1)
+    error = LimitExceededError("token", value=33, limit=1, source=ours)
+    monkeypatch.setattr(task, "sample_active", lambda: SimpleNamespace(limit_exceeded_error=error))
+    assert task.tripped_limit([ours]) is error
+    assert task.tripped_limit([other]) is None  # e.g. a sample limit: not ours to handle
+    monkeypatch.setattr(task, "sample_active", lambda: None)
+    assert task.tripped_limit([ours]) is None
+
+
+def test_limit_message() -> None:
+    from inspect_ai.util import LimitExceededError
+
+    cost = task.limit_message(LimitExceededError("cost", value=5.2, limit=5.0))
+    assert cost.startswith("Spend limit reached ($5): the CLI was stopped;")
+    tokens = task.limit_message(LimitExceededError("token", value=20_001, limit=20_000))
+    assert tokens.startswith("Output token limit reached (20,000 tokens)")

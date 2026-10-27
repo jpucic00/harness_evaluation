@@ -47,7 +47,7 @@ from agenteval.config import (
     SuiteName,
     SuiteSelection,
 )
-from agenteval.suites import cases as case_lib
+from agenteval.suites import reference_cases as case_lib
 
 USER = getpass.getuser()
 PYTHON = sys.executable
@@ -603,7 +603,7 @@ def test_bad_runner_output_is_a_protocol_error(stdout: str) -> None:
 def test_case_files_reject_unsupported_expected_values(tmp_path: Path) -> None:
     path = tmp_path / "bad_cases.py"
     path.write_text(
-        "from agenteval.suites.cases import Case\nCASES = [Case('c1', 'f()', object())]\n"
+        "from agenteval.suites.reference_cases import Case\nCASES = [Case('c1', 'f()', object())]\n"
     )
     with pytest.raises(ValueError, match="unsupported expected value"):
         case_lib.load_case_set(path)

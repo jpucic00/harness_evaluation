@@ -230,15 +230,13 @@ def test_timeout_exit_codes() -> None:
 
 
 def _config(**overrides: object) -> TartSandboxConfig:
-    return TartSandboxConfig.from_settings(
-        TartSettings(**overrides),  # type: ignore[arg-type]
-        default_cwd="/workspace",
-    )
+    settings = TartSettings(**overrides)  # type: ignore[arg-type]
+    return TartSandboxConfig(**settings.model_dump(), default_cwd="/workspace")
 
 
 def test_config_from_settings_and_spec_roundtrip() -> None:
-    config = _config(cpu=2, bootstrap_password="not-for-logs")
-    assert config.cpu == 2 and config.default_user == "root" and config.default_cwd == "/workspace"
+    config = _config(cpus=2, bootstrap_password="not-for-logs")
+    assert config.cpus == 2 and config.default_user == "root" and config.default_cwd == "/workspace"
     dumped = config.model_dump()
     assert "bootstrap_password" not in dumped
     assert "not-for-logs" not in config.model_dump_json() and "not-for-logs" not in repr(config)
@@ -249,7 +247,7 @@ def test_config_from_settings_and_spec_roundtrip() -> None:
     spec = SandboxEnvironmentSpec("tart", config)
     restored = SandboxEnvironmentSpec.model_validate(spec.model_dump())
     assert isinstance(restored.config, TartSandboxConfig)
-    assert restored.config.cpu == 2
+    assert restored.config.cpus == 2
 
 
 def test_config_from_profile_dump_and_validation() -> None:
@@ -266,8 +264,11 @@ def test_resolve_config_variants(tmp_path: Path) -> None:
     config = _config()
     assert resolve_config(config) is config
     path = tmp_path / "tart.yaml"
+    path.write_text("default_cwd: /srv\nmemory: 2g\n")
+    assert resolve_config(str(path)).memory == "2g"
     path.write_text("default_cwd: /srv\nmemory_mb: 2048\n")
-    assert resolve_config(str(path)).memory_mb == 2048
+    with pytest.raises(ValueError, match="'memory_mb' was renamed: use memory"):
+        resolve_config(str(path))
     with pytest.raises(ValueError):
         resolve_config(None)
 

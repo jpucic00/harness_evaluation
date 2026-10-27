@@ -1,3 +1,4 @@
+# yaml-language-server: $schema=../schema/run.schema.json
 description: OpenCode + Qwen 3.8 in Tart Linux VMs, with and without the bubblewrap inner sandbox
 models: [qwen38-27b]
 harnesses: [opencode-none, opencode-bwrap]

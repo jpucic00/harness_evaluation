@@ -1,0 +1,148 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$defs": {
+    "Connection": {
+      "additionalProperties": false,
+      "description": "How the host reaches the provider (OpenAI-compatible providers only).\n\nSetting it also loads the CA bundle from ``SSL_CERT_FILE`` and a client certificate\nfrom ``MTLS_CERT_FILE`` / ``MTLS_KEY_FILE`` / ``MTLS_KEY_PASSWORD`` or\n``MTLS_PKCS12_FILE`` / ``MTLS_PKCS12_PASSWORD`` (see ``agenteval.models``).",
+      "properties": {
+        "proxy": {
+          "default": "environment",
+          "description": "``direct`` ignores HTTP(S)_PROXY and the OS proxy settings: for a gateway reached\nover a VPN that drops proxied calls (\"Server disconnected without sending a response\").",
+          "enum": [
+            "environment",
+            "direct"
+          ],
+          "title": "Proxy",
+          "type": "string"
+        }
+      },
+      "title": "Connection",
+      "type": "object"
+    },
+    "Pricing": {
+      "additionalProperties": false,
+      "description": "USD per 1M tokens.",
+      "properties": {
+        "input": {
+          "title": "Input",
+          "type": "number"
+        },
+        "output": {
+          "title": "Output",
+          "type": "number"
+        },
+        "input_cache_read": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Price of cached input tokens; ``None`` = same as ``input`` (no cache discount assumed).",
+          "title": "Input Cache Read"
+        },
+        "input_cache_write": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Price of cache-write tokens; ``None`` = same as ``input``.",
+          "title": "Input Cache Write"
+        }
+      },
+      "required": [
+        "input",
+        "output"
+      ],
+      "title": "Pricing",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "extends": {
+      "description": "Name of another model profile this one starts from: its settings are merged under this file's (mappings key by key, lists and other values replaced). Chains are allowed; cycles are rejected.",
+      "title": "Extends",
+      "type": "string"
+    },
+    "name": {
+      "title": "Name",
+      "type": "string"
+    },
+    "description": {
+      "default": "",
+      "title": "Description",
+      "type": "string"
+    },
+    "access": {
+      "default": "bridge",
+      "description": "``bridge``: Inspect on the host calls ``inspect_model`` for the agent.\n\n``subscription``: Claude Code in the environment calls Anthropic itself with the\nuser's Claude subscription (``CLAUDE_CODE_OAUTH_TOKEN``). Anthropic allows\nsubscription logins only for Claude Code itself, so the calls cannot go through\nInspect: such a profile has no ``inspect_model``, no pricing, and works only in\n``agenteval dev`` with a ``claude_code`` harness. ``agent_models.claude_code`` is\nthe model Claude Code is started with.",
+      "enum": [
+        "bridge",
+        "subscription"
+      ],
+      "title": "Access",
+      "type": "string"
+    },
+    "inspect_model": {
+      "default": "",
+      "description": "Inspect model id, e.g. ``openrouter/qwen/qwen3.8-27b`` or ``mockllm/model``.",
+      "title": "Inspect Model",
+      "type": "string"
+    },
+    "model_args": {
+      "additionalProperties": true,
+      "title": "Model Args",
+      "type": "object"
+    },
+    "connection": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/Connection"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Custom HTTP client settings; ``None`` keeps Inspect's default client."
+    },
+    "pricing": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/Pricing"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "required_env": {
+      "description": "Host env vars that must be set before the run starts (e.g. OPENROUTER_API_KEY).",
+      "items": {
+        "type": "string"
+      },
+      "title": "Required Env",
+      "type": "array"
+    },
+    "agent_models": {
+      "additionalProperties": {
+        "type": "string"
+      },
+      "description": "Model id each agent CLI is told to use, keyed by harness agent (e.g. ``opencode``).\n\nIt selects the CLI's request format and prompt template; the calls themselves still\ngo through the Inspect bridge to ``inspect_model``. A harness ``agent_model`` wins.\nBridge profiles get ``DEFAULT_AGENT_MODELS`` for agents they leave out\n(``opencode: openrouter/qwen/qwen3.8-27b``).",
+      "title": "Agent Models",
+      "type": "object"
+    }
+  },
+  "title": "ModelProfile",
+  "type": "object"
+}

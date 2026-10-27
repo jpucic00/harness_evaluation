@@ -1,3 +1,4 @@
+# yaml-language-server: $schema=../schema/run.schema.json
 description: All 6 capability tasks x 3 epochs, OpenCode + Qwen 3.8 27B in Docker, with and without bubblewrap
 models: [qwen38-27b]
 harnesses: [opencode-none, opencode-bwrap]

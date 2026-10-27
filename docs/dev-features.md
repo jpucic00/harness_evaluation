@@ -167,9 +167,9 @@ difference as the containment checks measure it.
 ### OpenCode: `opencode-none`, `opencode-bwrap`
 
 OpenCode's terminal interface, started with `--auto` and the model id from the model
-profile's `agent_models.opencode`. `mock`, `mock-worker`, `qwen38-27b` and the `gateway-*`
-profiles have one. `claude-sonnet-api` and `claude-sonnet-bedrock` do not, so OpenCode
-cannot use them; that error only appears after the environment has started. A harness
+profile's `agent_models.opencode`, or the default `openrouter/qwen/qwen3.8-27b` when the
+profile sets none. `claude-sonnet-api` and `claude-sonnet-bedrock` set
+`anthropic/claude-sonnet-4-5` (Anthropic's request format). A harness
 `system_prompt` is not applied in dev mode, because OpenCode's interface has no flag for
 it. The status bar shows the model profile's description and name, and `agenteval bridge`
 as the provider, for example `Qwen on the gateway (gateway-qwen) agenteval bridge`.
@@ -474,7 +474,7 @@ To go the other way, and try a case's repo by hand in dev mode, see
 | `harness '...' has no subagents; drop --subagent-model` | Only the `claude-code-subagents-*` and `claude-code-opencode-*` harnesses take `--subagent-model`. |
 | OpenCode runs a non-Claude model with no known limits (context 0, output 0) and reasoning off | The profile's `agent_models.opencode` is not a model in OpenCode's catalog, so OpenCode treats it as a custom model. (It no longer falls back to Claude Sonnet 4.6 with "Model ... is not valid", because agenteval names the model in OpenCode's config for the status bar.) It is OpenCode's own model id, not the provider's: keep a catalog id such as `openrouter/qwen/qwen3.8-27b`, and put the gateway's id in `inspect_model`. |
 | OpenCode spins, or shows `Connection error.` (for example `Connection error. [retrying attempt #1]`), with a `gateway-*` model | The bridge cannot reach the gateway. It retries a failing call twice, then hands the error to OpenCode, which keeps retrying by itself. The bridge runs on your machine, so your machine needs the VPN, not the environment. From the checkout, run `uv run python scripts/check_model.py gateway-qwen` (or another profile): it calls the model once from your machine, shows the proxies Python would use and which step fails (DNS, TCP, TLS), or the provider's error. The gateway drops calls sent through the company proxy ("Server disconnected without sending a response"), so a gateway profile needs `connection: {proxy: direct}`, as the shipped ones have; `--direct` tries that with any profile. |
-| `The session failed: ... has no agent_models.opencode entry ...` | OpenCode needs a model profile with `agent_models.opencode`, such as `mock` or `qwen38-27b`. |
+| `The session failed: ... has no agent_models.opencode entry ...` | Only a subscription profile (or an `agent_models.opencode` / harness `agent_model` without a `provider/` prefix) lacks an OpenCode model; bridge profiles get the default. Use a bridge profile such as `mock` or `qwen38-27b`, or fix the id. |
 | `harness '...' must pin a version: agenteval dev needs the real binary` | Set an exact `version` in the harness profile. |
 | `--include only applies to --mount copy` | Drop `--include`, or use copy mode. |
 | `--mount live would share ..., which contains the agenteval checkout ...` | Use copy mode, or work from a folder outside the checkout. |

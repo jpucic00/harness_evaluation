@@ -1,6 +1,6 @@
 """Reference cases for cap-11-git-branch-push: local branches, the bare origin and tracking."""
 
-from agenteval.suites.cases import Case
+from agenteval.suites.reference_cases import Case
 
 SETUP = """
 import subprocess

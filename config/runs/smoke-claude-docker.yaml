@@ -1,3 +1,4 @@
+# yaml-language-server: $schema=../schema/run.schema.json
 description: Offline smoke test of the Claude Code harnesses (mock models) in Docker
 models: [mock]
 subagent_model: mock-worker

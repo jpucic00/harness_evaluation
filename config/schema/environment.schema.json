@@ -1,0 +1,332 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$defs": {
+    "DockerSettings": {
+      "additionalProperties": false,
+      "properties": {
+        "image": {
+          "default": "agenteval/ubuntu-24.04:latest",
+          "title": "Image",
+          "type": "string"
+        },
+        "runtime": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Alternative OCI runtime, e.g. ``runsc`` (gVisor) or ``io.containerd.kata.v2`` (Kata).",
+          "title": "Runtime"
+        },
+        "security_opt": {
+          "description": "security_opt for every container of this environment (stock Docker defaults if empty).",
+          "items": {
+            "type": "string"
+          },
+          "title": "Security Opt",
+          "type": "array"
+        },
+        "bwrap_security_opt": {
+          "description": "Extra relaxations added only for cells whose harness uses the bwrap inner sandbox.\n\nbwrap creates user namespaces (blocked by Docker's default seccomp profile) and mounts\na fresh /proc (refused while Docker masks /proc paths). Cost: inside those containers,\nroot can write global /proc/sys entries (e.g. kernel.core_pattern) and\n/proc/sysrq-trigger, and every user can create user namespaces. That is why scorers\nnever run agent-written code as root, and why a gVisor (``runsc``) runtime is the\nbetter choice for bwrap cells on a shared Docker host.",
+          "items": {
+            "type": "string"
+          },
+          "title": "Bwrap Security Opt",
+          "type": "array"
+        },
+        "memory": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": "4g",
+          "description": "Container memory limit (``mem_limit``); ``None`` = no limit.",
+          "title": "Memory"
+        },
+        "cpus": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "CPU limit in cores, fractions allowed (e.g. 1.5); ``None`` = no limit.",
+          "title": "Cpus"
+        },
+        "pids_limit": {
+          "anyOf": [
+            {
+              "minimum": 64,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": 4096,
+          "description": "Per-container process limit, so one sample cannot exhaust the Docker VM.",
+          "title": "Pids Limit"
+        }
+      },
+      "title": "DockerSettings",
+      "type": "object"
+    },
+    "ProbeSettings": {
+      "additionalProperties": false,
+      "properties": {
+        "internet_target": {
+          "default": "1.1.1.1:443",
+          "description": "host:port used by the outbound-internet containment check (TCP connect only).",
+          "title": "Internet Target",
+          "type": "string"
+        },
+        "dns_name": {
+          "default": "example.com",
+          "title": "Dns Name",
+          "type": "string"
+        },
+        "host_ports": {
+          "description": "Ports tried on the default gateway (the VM host) by the host-reachability check.\n\n5000/7000 are macOS AirPlay receiver listeners, open by default on most Macs.",
+          "items": {
+            "type": "integer"
+          },
+          "title": "Host Ports",
+          "type": "array"
+        }
+      },
+      "title": "ProbeSettings",
+      "type": "object"
+    },
+    "SbxSettings": {
+      "additionalProperties": false,
+      "description": "Docker Sandboxes (``sbx``): one microVM per sample, from a Docker image loaded as a\nsandbox template by ``agenteval env build``.",
+      "properties": {
+        "image": {
+          "default": "agenteval/ubuntu-24.04:latest",
+          "description": "Docker image built from ``provision/Dockerfile`` (the one docker-ubuntu uses).",
+          "title": "Image",
+          "type": "string"
+        },
+        "template": {
+          "default": "agenteval/ubuntu-24.04-sbx:latest",
+          "description": "What sandboxes start from: ``image`` plus the label that gives root in the sandbox\nits full capabilities (the egress rule needs CAP_NET_ADMIN), loaded with\n``sbx template load``.",
+          "title": "Template",
+          "type": "string"
+        },
+        "cpus": {
+          "anyOf": [
+            {
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "vCPUs per sandbox (None: sbx's default, every host CPU).",
+          "title": "Cpus"
+        },
+        "memory": {
+          "default": "4g",
+          "description": "Memory per sandbox (``sbx create --memory``).",
+          "title": "Memory",
+          "type": "string"
+        },
+        "create_timeout": {
+          "default": 300,
+          "minimum": 10,
+          "title": "Create Timeout",
+          "type": "integer"
+        }
+      },
+      "title": "SbxSettings",
+      "type": "object"
+    },
+    "TartSettings": {
+      "additionalProperties": false,
+      "properties": {
+        "base_image": {
+          "default": "ghcr.io/cirruslabs/ubuntu:24.04",
+          "title": "Base Image",
+          "type": "string"
+        },
+        "image": {
+          "default": "agenteval-ubuntu-24.04",
+          "description": "Local Tart VM built by ``agenteval env build``; cloned for every sample.",
+          "title": "Image",
+          "type": "string"
+        },
+        "cpus": {
+          "default": 4,
+          "description": "vCPUs per VM.",
+          "minimum": 1,
+          "title": "Cpus",
+          "type": "integer"
+        },
+        "memory": {
+          "default": "4g",
+          "description": "Memory per VM (``tart set --memory`` in MiB).",
+          "title": "Memory",
+          "type": "string"
+        },
+        "network": {
+          "default": "nat",
+          "enum": [
+            "nat",
+            "softnet"
+          ],
+          "title": "Network",
+          "type": "string"
+        },
+        "ssh_user": {
+          "default": "admin",
+          "title": "Ssh User",
+          "type": "string"
+        },
+        "ssh_key": {
+          "default": "~/.agenteval/ssh/id_ed25519",
+          "title": "Ssh Key",
+          "type": "string"
+        },
+        "bootstrap_password": {
+          "default": "admin",
+          "description": "Default password of the public Cirrus Labs image; used once during image build.\n\nExcluded from dumps so it never reaches task metadata or eval logs.",
+          "title": "Bootstrap Password",
+          "type": "string"
+        },
+        "boot_timeout": {
+          "default": 180,
+          "minimum": 10,
+          "title": "Boot Timeout",
+          "type": "integer"
+        },
+        "use_sudo": {
+          "default": true,
+          "title": "Use Sudo",
+          "type": "boolean"
+        }
+      },
+      "title": "TartSettings",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "extends": {
+      "description": "Name of another environment profile this one starts from: its settings are merged under this file's (mappings key by key, lists and other values replaced). Chains are allowed; cycles are rejected.",
+      "title": "Extends",
+      "type": "string"
+    },
+    "name": {
+      "title": "Name",
+      "type": "string"
+    },
+    "description": {
+      "default": "",
+      "title": "Description",
+      "type": "string"
+    },
+    "provider": {
+      "enum": [
+        "tart",
+        "docker",
+        "sbx"
+      ],
+      "title": "Provider",
+      "type": "string"
+    },
+    "agent_user": {
+      "default": "agent",
+      "title": "Agent User",
+      "type": "string"
+    },
+    "workspace": {
+      "default": "/workspace",
+      "title": "Workspace",
+      "type": "string"
+    },
+    "egress": {
+      "default": "deny",
+      "description": "Outbound network policy for the agent user (enforced by the environment, not the harness).",
+      "enum": [
+        "allow",
+        "deny"
+      ],
+      "title": "Egress",
+      "type": "string"
+    },
+    "ambient_secrets": {
+      "default": true,
+      "description": "Plant fake credentials (canaries) the way a developer machine would have real ones.",
+      "title": "Ambient Secrets",
+      "type": "boolean"
+    },
+    "max_concurrent": {
+      "default": 2,
+      "minimum": 1,
+      "title": "Max Concurrent",
+      "type": "integer"
+    },
+    "probe": {
+      "$ref": "#/$defs/ProbeSettings"
+    },
+    "tart": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/TartSettings"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "docker": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/DockerSettings"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "sbx": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/SbxSettings"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    }
+  },
+  "title": "EnvironmentProfile",
+  "type": "object",
+  "if": {
+    "required": [
+      "extends"
+    ]
+  },
+  "else": {
+    "required": [
+      "provider"
+    ]
+  }
+}

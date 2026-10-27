@@ -34,9 +34,17 @@ import anyio
 from inspect_ai import Task
 from inspect_ai.agent import AgentState, sandbox_agent_bridge
 from inspect_ai.dataset import Sample
+from inspect_ai.log._samples import sample_active
 from inspect_ai.model import Model, get_model
 from inspect_ai.solver import Generate, Solver, TaskState, solver
-from inspect_ai.util import SandboxEnvironment, sandbox
+from inspect_ai.util import (
+    Limit,
+    LimitExceededError,
+    SandboxEnvironment,
+    cost_limit,
+    sandbox,
+    token_limit,
+)
 from inspect_swe._claude_code.env import (
     BLOCKING_MCP_ENV,
     DISABLE_AUTO_MEMORY_ENV,
@@ -46,7 +54,7 @@ from inspect_swe._claude_code.model import ClaudeCodeModels, resolve_claude_code
 
 from agenteval import constants
 from agenteval.config import EnvironmentProfile, HarnessProfile, ModelProfile
-from agenteval.dev.review import DevIO
+from agenteval.dev.review import DevIO, visible_text
 from agenteval.dev.session import Mount
 from agenteval.environments import sandbox_spec
 from agenteval.harnesses import claude_code as claude_harness
@@ -152,6 +160,10 @@ class DevSpec:
     host_term: Mapping[str, str] = field(default_factory=dict)
     exec_script: str | None = None
     """Test hook: run this ``sh`` script (no TTY) instead of attaching the terminal."""
+    cost_limit: float | None = None
+    """USD cap on the session's bridged model calls (all models); ``None``: no cap."""
+    token_limit: int | None = None
+    """Cap on the session's output tokens (all models); ``None``: no cap."""
 
 
 ExportHandler = Callable[[Exported], None]
@@ -806,7 +818,8 @@ async def run_session(
             {"AGENTEVAL_DEV_LAUNCH": LAUNCHER},
         )  # fmt: skip
         result = await anyio.run_process(argv, check=False)
-        io.out(result.stdout.decode(errors="replace") + result.stderr.decode(errors="replace"))
+        output = result.stdout.decode(errors="replace") + result.stderr.decode(errors="replace")
+        io.out(visible_text(output))
         if result.returncode != 0:
             raise RuntimeError(f"dev --exec script failed (exit {result.returncode})")
         return
@@ -896,7 +909,7 @@ async def export_with_recovery(
             if not io.interactive:
                 raise
             io.out(
-                f"\nCopying the changes out failed: {ex}\n"
+                f"\nCopying the changes out failed: {visible_text(str(ex))}\n"
                 "The environment is still running. You can get in with:\n"
                 f"  {handle.shell_hint(user.name, spec.vm_cwd)}\n"
             )
@@ -913,6 +926,40 @@ async def export_with_recovery(
                 await stop_agent(sbox, user)
             elif answer == "a":
                 raise
+
+
+def spend_limits(spec: DevSpec) -> list[Limit]:
+    """Scoped limits for the bridge, never sample limits: see ``tripped_limit``."""
+    limits: list[Limit] = []
+    if spec.token_limit is not None:
+        # output tokens: in a long session the total is mostly cache re-reads
+        limits.append(token_limit(spec.token_limit, type="output"))
+    if spec.cost_limit is not None:
+        limits.append(cost_limit(spec.cost_limit))
+    return limits
+
+
+def tripped_limit(limits: Sequence[Limit]) -> LimitExceededError | None:
+    """The error of one of ``limits`` that ended the sample, if any.
+
+    A bridged call that trips a limit raises ``LimitExceededError`` in the bridge's
+    sandbox service task, which never propagates it: it calls
+    ``ActiveSample.limit_exceeded``, which records the error and cancels the sample's
+    task group. The solver only sees a cancellation, wherever it was waiting.
+    """
+    active = sample_active()
+    error = active.limit_exceeded_error if active is not None else None
+    if error is None or not any(error.source is limit for limit in limits):
+        return None
+    return error
+
+
+def limit_message(error: LimitExceededError) -> str:
+    if error.type == "cost":
+        reached = f"Spend limit reached (${error.limit:g})"
+    else:
+        reached = f"Output token limit reached ({int(error.limit):,} tokens)"
+    return f"{reached}: the CLI was stopped; your changes are copied out for review as usual."
 
 
 @solver
@@ -975,9 +1022,26 @@ def dev_session(spec: DevSpec, io: DevIO, on_export: ExportHandler) -> Solver:
                 web_search=True if spec.dev_env.egress == "allow" else None,
             )
         )
-        async with bridge:
-            await install_root_file(sbox, LAUNCHER, launcher, "0755")
-            await run_session(sbox, handle, spec, io, user)
+        limits = spend_limits(spec)
+        try:
+            # entered before the bridge: its model service task inherits the limits
+            with contextlib.ExitStack() as stack:
+                for limit in limits:
+                    stack.enter_context(limit)
+                async with bridge:
+                    await install_root_file(sbox, LAUNCHER, launcher, "0755")
+                    await run_session(sbox, handle, spec, io, user)
+        except BaseException:
+            tripped = tripped_limit(limits)
+            if tripped is None:
+                raise
+            # Inspect cancels the whole sample when a bridged call trips a limit; finish
+            # the session's normal end shielded from that, then let the sample end
+            with anyio.CancelScope(shield=True):
+                io.out(f"\n{limit_message(tripped)}")
+                await stop_agent(sbox, user)
+                await export_with_recovery(sbox, handle, spec, io, user, on_export)
+            raise
         await stop_agent(sbox, user)
         await export_with_recovery(sbox, handle, spec, io, user, on_export)
         return state

@@ -1,18 +1,9 @@
+# yaml-language-server: $schema=../schema/model.schema.json
 # devstral-2512 on the OpenAI-compatible LLM gateway (262K context).
-# Inspect's openai-api provider reads GATEWAY_BASE_URL and GATEWAY_API_KEY from the
-# host environment (.env); keys never enter the sandbox.
-# Gateway quirk: tool schemas it cannot compile (vLLM/xgrammar) are silently dropped.
+# Gateway variables, quirks, direct connection and certificates: docs/setup.md#other-providers.
 description: devstral-2512 gateway
 inspect_model: openai-api/gateway/devstral-2512
 required_env: [GATEWAY_BASE_URL, GATEWAY_API_KEY]
-# The gateway is reached directly over the VPN; it drops calls sent through a proxy
-# ("Server disconnected without sending a response"). Optional in .env: SSL_CERT_FILE (a CA
-# bundle instead of the OS trust store) and MTLS_* (a client certificate); see
-# docs/setup.md#other-providers.
 connection:
   proxy: direct
-agent_models:
-  # Model id OpenCode is configured with: selects its OpenAI-style request format.
-  # Calls still go through the Inspect bridge to inspect_model.
-  opencode: openrouter/qwen/qwen3.8-27b
 # pricing: internal gateway, no per-token price; set one here to track an internal rate

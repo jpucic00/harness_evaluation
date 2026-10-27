@@ -1,0 +1,245 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$defs": {
+    "InnerSandbox": {
+      "additionalProperties": false,
+      "description": "Sandbox applied around the agent process *inside* the environment.",
+      "properties": {
+        "type": {
+          "default": "none",
+          "enum": [
+            "none",
+            "bwrap"
+          ],
+          "title": "Type",
+          "type": "string"
+        },
+        "hide_paths": {
+          "description": "Paths replaced by an empty tmpfs inside the sandbox. ``~`` = agent home.",
+          "items": {
+            "type": "string"
+          },
+          "title": "Hide Paths",
+          "type": "array"
+        },
+        "extra_writable_paths": {
+          "description": "Writable in addition to the workspace and the harness state dirs.",
+          "items": {
+            "type": "string"
+          },
+          "title": "Extra Writable Paths",
+          "type": "array"
+        },
+        "network": {
+          "default": "proxy-only",
+          "description": "proxy-only: own network namespace, only the Inspect model proxy is reachable.",
+          "enum": [
+            "proxy-only",
+            "host"
+          ],
+          "title": "Network",
+          "type": "string"
+        },
+        "clear_env": {
+          "default": true,
+          "description": "Start from an empty environment and pass through only allow-listed variables.",
+          "title": "Clear Env",
+          "type": "boolean"
+        },
+        "env_passthrough": {
+          "description": "Extra env var names passed through when ``clear_env`` is on.",
+          "items": {
+            "type": "string"
+          },
+          "title": "Env Passthrough",
+          "type": "array"
+        }
+      },
+      "title": "InnerSandbox",
+      "type": "object"
+    },
+    "SubagentDef": {
+      "additionalProperties": false,
+      "description": "A Claude Code custom subagent (written to ``~/.claude/agents/<name>.md``).",
+      "properties": {
+        "description": {
+          "description": "When the orchestrator should delegate to this subagent.",
+          "title": "Description",
+          "type": "string"
+        },
+        "prompt": {
+          "title": "Prompt",
+          "type": "string"
+        },
+        "tools": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Claude Code tool names the subagent may use; ``None`` inherits all tools.",
+          "title": "Tools"
+        }
+      },
+      "required": [
+        "description",
+        "prompt"
+      ],
+      "title": "SubagentDef",
+      "type": "object"
+    },
+    "Subagents": {
+      "additionalProperties": false,
+      "description": "Workers the orchestrating agent delegates to, served by their own model.\n\n- ``runner: claude_code``: Claude Code's own subagents (``agents``) run on ``model``.\n- ``runner: opencode``: the orchestrator delegates by running ``opencode-worker``,\n  an OpenCode process (pinned ``opencode_version``) that runs on ``model``.\n\nBoth route through the orchestrator's Inspect model bridge, so the worker model's\nkey stays on the host and its calls are logged and priced separately.",
+      "properties": {
+        "runner": {
+          "enum": [
+            "claude_code",
+            "opencode"
+          ],
+          "title": "Runner",
+          "type": "string"
+        },
+        "model": {
+          "description": "Model profile name (``config/models``) that serves the workers.",
+          "title": "Model",
+          "type": "string"
+        },
+        "agents": {
+          "additionalProperties": {
+            "$ref": "#/$defs/SubagentDef"
+          },
+          "title": "Agents",
+          "type": "object"
+        },
+        "opencode_version": {
+          "default": "1.19.3",
+          "title": "Opencode Version",
+          "type": "string"
+        },
+        "instructions": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Appended to the orchestrator's system prompt (default: a short delegation note).",
+          "title": "Instructions"
+        }
+      },
+      "required": [
+        "runner",
+        "model"
+      ],
+      "title": "Subagents",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "extends": {
+      "description": "Name of another harness profile this one starts from: its settings are merged under this file's (mappings key by key, lists and other values replaced). Chains are allowed; cycles are rejected.",
+      "title": "Extends",
+      "type": "string"
+    },
+    "name": {
+      "title": "Name",
+      "type": "string"
+    },
+    "description": {
+      "default": "",
+      "title": "Description",
+      "type": "string"
+    },
+    "agent": {
+      "enum": [
+        "opencode",
+        "claude_code"
+      ],
+      "title": "Agent",
+      "type": "string"
+    },
+    "version": {
+      "default": "stable",
+      "description": "Pinned agent version (e.g. ``1.19.3``) or ``stable``/``latest``.",
+      "title": "Version",
+      "type": "string"
+    },
+    "agent_model": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Override for the model id handed to the CLI (see ``ModelProfile.agent_models``).",
+      "title": "Agent Model"
+    },
+    "inner_sandbox": {
+      "$ref": "#/$defs/InnerSandbox"
+    },
+    "env": {
+      "additionalProperties": {
+        "type": "string"
+      },
+      "title": "Env",
+      "type": "object"
+    },
+    "system_prompt": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "System Prompt"
+    },
+    "options": {
+      "additionalProperties": true,
+      "description": "Extra keyword arguments for the underlying inspect_swe agent factory.",
+      "title": "Options",
+      "type": "object"
+    },
+    "subagents": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/Subagents"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Workers the agent delegates to (``claude_code`` only)."
+    }
+  },
+  "title": "HarnessProfile",
+  "type": "object",
+  "if": {
+    "required": [
+      "extends"
+    ]
+  },
+  "else": {
+    "required": [
+      "agent"
+    ]
+  }
+}

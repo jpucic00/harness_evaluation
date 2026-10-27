@@ -1,0 +1,51 @@
+# yaml-language-server: $schema=../schema/model.schema.json
+# Template for a model profile. Copy it to <name>.yaml and edit; the profile name is the
+# file name. Files starting with "_" are never loaded as profiles. Unknown keys are
+# rejected. Field reference: docs/extending.md#model-profiles.
+
+# Start from another model profile and change only some keys (mappings are merged, lists
+# replaced; see docs/extending.md). Default: none.
+# extends: qwen38-27b
+
+# Shown by `agenteval profiles`. Default: "".
+description: Example model (Inspect's offline mock)
+
+# bridge (default): Inspect on the host calls inspect_model for the agent.
+# subscription: Claude Code calls Anthropic itself on your Claude plan (`agenteval dev`
+# with a claude_code harness only); then set agent_models.claude_code and leave out
+# inspect_model, model_args, connection and pricing.
+access: bridge
+
+# Inspect model id, provider/model, e.g. openrouter/qwen/qwen3.8-27b,
+# openai-api/gateway/gpt-oss-120b, anthropic/claude-sonnet-4-5. Required with access: bridge.
+inspect_model: mockllm/model
+
+# Extra keyword arguments for Inspect's get_model() (provider-specific). Default: {}.
+# model_args:
+#   provider:
+#     data_collection: deny
+
+# How the host reaches an OpenAI-compatible provider. Default: none (Inspect's client).
+# proxy: environment (default, HTTP(S)_PROXY and OS settings) or direct (ignore proxies,
+# for a gateway behind a VPN that drops proxied calls).
+# connection:
+#   proxy: direct
+
+# USD per 1M tokens. Unset cache prices are charged at the input rate. Without pricing,
+# cost is reported as "unknown".
+# pricing:
+#   input: 0.24
+#   output: 2.20
+#   input_cache_read: 0.05
+#   input_cache_write: 0.30
+
+# Host env vars that must be set before a run starts (checked by name only). Default: [].
+# required_env: [OPENROUTER_API_KEY]
+
+# Model id handed to each agent CLI, keyed by harness agent (opencode, claude_code). It
+# selects the CLI's request format and prompt template; the answers still come from
+# inspect_model. A harness agent_model wins. The OpenCode id must be in OpenCode's catalog.
+# Default: opencode: openrouter/qwen/qwen3.8-27b (OpenAI-style format, generic prompt);
+# set it only for a model OpenCode should treat differently.
+# agent_models:
+#   opencode: anthropic/claude-sonnet-4-5

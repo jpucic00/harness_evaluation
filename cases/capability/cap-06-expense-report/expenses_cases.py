@@ -2,7 +2,7 @@
 
 from decimal import Decimal
 
-from agenteval.suites.cases import Case
+from agenteval.suites.reference_cases import Case
 
 SETUP = '''
 from expenses import format_report, monthly_totals, parse_csv, totals_by_category

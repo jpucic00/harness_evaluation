@@ -1,3 +1,4 @@
+# yaml-language-server: $schema=../schema/harness.schema.json
 description: OpenCode with no inner sandbox (the VM is the only boundary)
 agent: opencode
 version: "1.19.3"

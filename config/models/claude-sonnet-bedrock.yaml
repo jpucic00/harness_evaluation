@@ -1,3 +1,4 @@
+# yaml-language-server: $schema=../schema/model.schema.json
 # Claude Sonnet 5.5 via Amazon Bedrock (the Claude Code route).
 # Credentials come from the host's standard AWS chain (AWS_PROFILE / SSO / env keys);
 # AWS_REGION picks the Bedrock endpoint.
@@ -7,6 +8,10 @@
 description: Claude Sonnet 5.5 on Amazon Bedrock
 inspect_model: anthropic/bedrock/global.anthropic.claude-sonnet-5-5
 required_env: [AWS_REGION]
+agent_models:
+  # With an opencode harness: Anthropic's request format instead of the OpenAI-style
+  # default (inspect_swe's own default id, which OpenCode's catalog knows).
+  opencode: anthropic/claude-sonnet-4-5
 pricing:  # USD per 1M tokens, assumed equal to Anthropic list price; verify against your Bedrock rate card
   input: 2.00
   output: 10.00

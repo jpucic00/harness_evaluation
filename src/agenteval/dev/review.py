@@ -165,19 +165,19 @@ def _escape(match: re.Match[str]) -> str:
     return f"\\x{code:02x}" if code < 0x100 else f"\\u{code:04x}"
 
 
-def _visible(text: str) -> str:
+def visible_text(text: str) -> str:
     """Make control characters visible (keeps tabs and newlines)."""
     return _UNSAFE.sub(_escape, text)
 
 
 def _line(text: str) -> str:
     """One display line: control characters and newlines made visible."""
-    return _visible(text).replace("\n", "\\n")
+    return visible_text(text).replace("\n", "\\n")
 
 
 def _indented(text: str, indent: str) -> str:
     """A possibly multi-line text, control characters made visible, every line indented."""
-    return indent + _visible(text.rstrip("\n")).replace("\n", "\n" + indent)
+    return indent + visible_text(text.rstrip("\n")).replace("\n", "\n" + indent)
 
 
 def _paint(text: str, code: str, color: bool) -> str:
@@ -195,7 +195,7 @@ def _text_lines(data: bytes) -> list[str]:
 def _describe(data: bytes | None) -> str:
     if data is None:
         return "(none)"
-    return _visible(data.decode("utf-8", errors="replace").rstrip("\n")).replace("\n", "\n    ")
+    return visible_text(data.decode("utf-8", errors="replace").rstrip("\n")).replace("\n", "\n    ")
 
 
 def render_diff(item: ReviewItem, color: bool) -> str:
@@ -217,7 +217,7 @@ def render_diff(item: ReviewItem, color: bool) -> str:
     )
     lines: list[str] = []
     for raw in diff:
-        lines.append(_visible(raw.removesuffix("\n")))
+        lines.append(visible_text(raw.removesuffix("\n")))
         if not raw.endswith("\n"):
             lines.append("\\ No newline at end of file")
     if not lines:

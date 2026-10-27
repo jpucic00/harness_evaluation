@@ -1,6 +1,6 @@
 """Reference cases for cap-07-adr-qa: the agent's answers.json against the ADRs."""
 
-from agenteval.suites.cases import Case
+from agenteval.suites.reference_cases import Case
 
 SETUP = '''
 import json

@@ -1,6 +1,7 @@
+# yaml-language-server: $schema=../schema/harness.schema.json
+# claude-code-none plus the bubblewrap inner sandbox (extends merges this file over it).
+extends: claude-code-none
 description: Claude Code inside a bubblewrap sandbox (read-only system, writable workspace, secrets hidden, network limited to the model proxy)
-agent: claude_code
-version: "2.1.292"
 inner_sandbox:
   type: bwrap
   network: proxy-only

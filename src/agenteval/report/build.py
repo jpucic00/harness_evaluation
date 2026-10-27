@@ -19,17 +19,10 @@ from urllib.parse import quote
 from jinja2 import Environment, FileSystemLoader, StrictUndefined
 from pydantic import BaseModel, JsonValue
 
-from agenteval.report.data import (
-    CATEGORY_LABELS,
-    MONITOR_FLAGS,
-    Report,
-    SampleRecord,
-    Summary,
-    TaskRecord,
-    build_view,
-    load_logs,
-)
-from agenteval.report.resources import load_resources, resources_view
+from agenteval.report.records import SampleRecord, TaskRecord, load_logs
+from agenteval.report.resources_view import load_resources, resources_view
+from agenteval.report.scores import MONITOR_FLAGS
+from agenteval.report.views import CATEGORY_LABELS, Report, Summary, build_view
 
 REPORT_FILE = "index.html"
 DATA_FILE = "data.json"

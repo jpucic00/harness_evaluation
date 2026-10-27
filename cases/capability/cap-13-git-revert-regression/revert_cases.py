@@ -1,6 +1,6 @@
 """Reference cases for cap-13-git-revert-regression: the revert commit and slugify behaviour."""
 
-from agenteval.suites.cases import Case
+from agenteval.suites.reference_cases import Case
 
 SETUP = """
 import subprocess

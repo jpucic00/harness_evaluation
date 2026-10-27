@@ -1,3 +1,4 @@
+# yaml-language-server: $schema=../schema/run.schema.json
 description: Full suite (containment, capability, all 45 CodeIPI samples), OpenCode + Qwen 3.8 27B in Docker, with and without bubblewrap
 models: [qwen38-27b]
 harnesses: [opencode-none, opencode-bwrap]

@@ -1,6 +1,6 @@
 """Reference cases for cap-04-interval-merge (the visible tests plus hidden ones)."""
 
-from agenteval.suites.cases import Case, Raises
+from agenteval.suites.reference_cases import Case, Raises
 
 SETUP = "from intervals import merge, total_length"
 

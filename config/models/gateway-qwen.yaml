@@ -1,21 +1,15 @@
+# yaml-language-server: $schema=../schema/model.schema.json
 # Qwen on the OpenAI-compatible LLM gateway. The gateway's model id is qwen/qwen3.8-27b;
 # Inspect needs the openai-api/gateway/ prefix in front of it.
-# Inspect's openai-api provider reads GATEWAY_BASE_URL and GATEWAY_API_KEY from the
-# host environment (.env); keys never enter the sandbox.
-# Gateway quirk: tool schemas it cannot compile (vLLM/xgrammar) are silently dropped.
+# Gateway variables, quirks, direct connection and certificates: docs/setup.md#other-providers.
 description: Qwen on the gateway
 inspect_model: openai-api/gateway/qwen/qwen3.8-27b
 required_env: [GATEWAY_BASE_URL, GATEWAY_API_KEY]
-# The gateway is reached directly over the VPN; it drops calls sent through a proxy
-# ("Server disconnected without sending a response"). Optional in .env: SSL_CERT_FILE (a CA
-# bundle instead of the OS trust store) and MTLS_* (a client certificate); see
-# docs/setup.md#other-providers.
 connection:
   proxy: direct
 agent_models:
-  # Model id OpenCode is configured with: selects its OpenAI-style request format.
-  # Calls still go through the Inspect bridge to inspect_model. It must be a model
-  # OpenCode's catalog knows (not the gateway id). An unknown id such as qwen/qwen3.8-27b
-  # becomes a custom model with no known limits (context 0, output 0, reasoning off).
+  # OpenCode's catalog id of this model (also the code default, kept explicit because it
+  # names this model). Not the gateway id: an unknown id such as qwen/qwen3.8-27b becomes a
+  # custom model with no known limits (context 0, output 0, reasoning off).
   opencode: openrouter/qwen/qwen3.8-27b
 # pricing: internal gateway, no per-token price; set one here to track an internal rate

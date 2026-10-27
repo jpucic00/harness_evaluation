@@ -252,14 +252,14 @@ def test_sandbox_spec_tart_with_stub(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setitem(sys.modules, "agenteval.environments.tart.sandbox", fake)
 
     env = EnvironmentProfile(
-        name="vm", provider="tart", workspace="/work", tart=TartSettings(cpu=2, image="img")
+        name="vm", provider="tart", workspace="/work", tart=TartSettings(cpus=2, image="img")
     )
     spec = sandbox_spec(env)
     assert spec.type == "tart"
     assert isinstance(spec.config, _FakeTartSandboxConfig)
     assert spec.config.default_cwd == "/work"
     assert spec.config.default_user == "root"
-    assert spec.config.cpu == 2
+    assert spec.config.cpus == 2
     assert spec.config.image == "img"
 
 

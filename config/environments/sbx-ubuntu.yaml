@@ -1,3 +1,4 @@
+# yaml-language-server: $schema=../schema/environment.schema.json
 description: Docker Sandboxes microVM (Ubuntu 24.04, same image as docker-ubuntu) per sample
 provider: sbx
 agent_user: agent

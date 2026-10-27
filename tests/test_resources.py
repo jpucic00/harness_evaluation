@@ -1,4 +1,4 @@
-"""Host resource sampling (agenteval.resources) and the report's Resources section."""
+"""Host resource sampling (agenteval.resource_sampler) and the report's Resources section."""
 
 from __future__ import annotations
 
@@ -13,13 +13,13 @@ from typing import Any, cast
 import pytest
 
 from agenteval.report.build import build_report
-from agenteval.report.resources import (
+from agenteval.report.resources_view import (
     load_resources,
     nice_scale,
     resources_view,
     stacked_chart,
 )
-from agenteval.resources import (
+from agenteval.resource_sampler import (
     AGENTEVAL,
     DOCKER,
     RESOURCES_FILE,

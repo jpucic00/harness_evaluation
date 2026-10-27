@@ -40,6 +40,7 @@ from agenteval.config import (
     load_profiles,
     load_run,
     missing_env,
+    yaml_files,
 )
 
 if TYPE_CHECKING:
@@ -183,7 +184,7 @@ def resolve_run_file(run_file: str | Path, config_dir: Path) -> Path:
         return path
     for suffix in (".yaml", ".yml"):
         candidate = config_dir / "runs" / f"{run_file}{suffix}"
-        if candidate.is_file():
+        if candidate in yaml_files(config_dir / "runs"):
             return candidate
     raise ConfigError(f"run file not found: {run_file} (also looked in {config_dir / 'runs'})")
 
@@ -360,8 +361,10 @@ def build_run_report(plan: RunPlan, *, echo: Echo = _echo) -> Path | None:
 
 def provision_sha256() -> str | None:
     """sha256 of the provision.sh shipped with this agenteval (images record theirs too)."""
+    from agenteval.environments import PROVISION_SCRIPT
+
     try:
-        return hashlib.sha256(provision_script().read_bytes()).hexdigest()
+        return hashlib.sha256(PROVISION_SCRIPT.read_bytes()).hexdigest()
     except OSError:
         return None
 
@@ -447,7 +450,7 @@ def resource_sampler(plan: RunPlan) -> AbstractContextManager[object]:
     """Host CPU/memory sampling for the run (``resource_interval: 0`` turns it off)."""
     if plan.run.resource_interval <= 0:
         return nullcontext()
-    from agenteval.resources import RESOURCES_FILE, ResourceSampler
+    from agenteval.resource_sampler import RESOURCES_FILE, ResourceSampler
 
     return ResourceSampler(
         plan.log_dir / RESOURCES_FILE,
@@ -574,8 +577,7 @@ def view_command(log_root: Path, run_id: str = LATEST) -> list[str]:
 
 
 def _run_files(config_dir: Path) -> list[Path]:
-    runs = config_dir / "runs"
-    return sorted([*runs.glob("*.yaml"), *runs.glob("*.yml")]) if runs.is_dir() else []
+    return yaml_files(config_dir / "runs")
 
 
 def describe_profiles(config_dir: Path) -> str:
@@ -664,10 +666,6 @@ def _env_image(env: EnvironmentProfile) -> str:
 # --------------------------------------------------------------------------- environments
 
 
-def provision_script() -> Path:
-    return Path(__file__).parent / "environments" / "provision" / "provision.sh"
-
-
 def get_environment(config_dir: Path, name: str) -> EnvironmentProfile:
     environments = load_profiles(config_dir).environments
     if name not in environments:
@@ -683,11 +681,12 @@ def build_environment(env: EnvironmentProfile, *, force: bool = False) -> None:
     elif env.provider == "sbx":
         build_sbx_environment(env, force=force)
     else:
+        from agenteval.environments import PROVISION_SCRIPT
         from agenteval.environments.tart.image import build_image as build_tart_image
 
         if env.tart is None:
             raise ConfigError(f"environment '{env.name}' has no tart settings")
-        script = provision_script()
+        script = PROVISION_SCRIPT
         if not script.is_file():
             raise ConfigError(f"provision script missing: {script}")
         asyncio.run(
@@ -820,7 +819,7 @@ Status = Literal["ok", "warn", "fail"]
 
 
 @dataclass(frozen=True)
-class Check:
+class DoctorCheck:
     name: str
     status: Status
     detail: str
@@ -830,7 +829,7 @@ def _first_line(text: str) -> str:
     return text.strip().splitlines()[0] if text.strip() else ""
 
 
-def dhcp_lease_check(plist: Path | None = None) -> Check:
+def dhcp_lease_check(plist: Path | None = None) -> DoctorCheck:
     """Tart's nat network uses macOS bootpd, whose 1-day leases run out after ~253 VMs/day."""
     from agenteval.environments.tart.image import (
         DHCP_PLIST,
@@ -841,21 +840,21 @@ def dhcp_lease_check(plist: Path | None = None) -> Check:
     path = plist or DHCP_PLIST
     problem = dhcp_lease_problem(path)
     if problem:
-        return Check("tart dhcp lease", "warn", problem)
-    return Check("tart dhcp lease", "ok", f"DHCPLeaseTimeSecs={dhcp_lease_seconds(path)}")
+        return DoctorCheck("tart dhcp lease", "warn", problem)
+    return DoctorCheck("tart dhcp lease", "ok", f"DHCPLeaseTimeSecs={dhcp_lease_seconds(path)}")
 
 
-def userns_restriction_check(docker_envs: Sequence[str], sysctl: Path | None = None) -> Check:
+def userns_restriction_check(docker_envs: Sequence[str], sysctl: Path | None = None) -> DoctorCheck:
     """Linux Docker hosts that restrict unprivileged user namespaces break bwrap cells."""
     name = "docker bwrap userns"
     sysctl = sysctl or USERNS_RESTRICT_SYSCTL
     try:
         value = sysctl.read_text().strip()
     except OSError:
-        return Check(name, "ok", f"{sysctl} not present (no AppArmor userns restriction)")
+        return DoctorCheck(name, "ok", f"{sysctl} not present (no AppArmor userns restriction)")
     if value != "1":
-        return Check(name, "ok", f"kernel.apparmor_restrict_unprivileged_userns={value}")
-    return Check(
+        return DoctorCheck(name, "ok", f"kernel.apparmor_restrict_unprivileged_userns={value}")
+    return DoctorCheck(
         name,
         "warn",
         "kernel.apparmor_restrict_unprivileged_userns=1 on this host: bwrap cells in "
@@ -897,17 +896,17 @@ def doctor(
     tart_image_exists: Callable[[str], bool] = _tart_image_exists,
     sbx_status: Callable[[], tuple[list[str], list[str]]] = _sbx_status,
     sbx_template_id: Callable[[str], str | None] = _sbx_template_id,
-) -> list[Check]:
+) -> list[DoctorCheck]:
     """Check the host. Problems with the selected ``--env`` are failures, others warnings.
 
     Required env vars are reported by name only; their values are never read out.
     """
-    checks: list[Check] = []
+    checks: list[DoctorCheck] = []
     add = checks.append
 
     py = sys.version_info
     add(
-        Check(
+        DoctorCheck(
             "python",
             "ok" if py >= (3, 12) else "fail",
             f"{py.major}.{py.minor}.{py.micro} ({sys.executable})",
@@ -915,18 +914,18 @@ def doctor(
     )
     if shutil.which("uv"):
         rc, out = runner(["uv", "--version"], 15)
-        add(Check("uv", "ok" if rc == 0 else "warn", _first_line(out)))
+        add(DoctorCheck("uv", "ok" if rc == 0 else "warn", _first_line(out)))
     else:
-        add(Check("uv", "warn", "not on PATH (needed to install/sync the project)"))
+        add(DoctorCheck("uv", "warn", "not on PATH (needed to install/sync the project)"))
 
     for dist in ("agenteval", "inspect-ai", "inspect-swe", "inspect-evals"):
         try:
-            add(Check(dist, "ok", metadata.version(dist)))
+            add(DoctorCheck(dist, "ok", metadata.version(dist)))
         except metadata.PackageNotFoundError:
-            add(Check(dist, "fail", "not installed (run `uv sync`)"))
+            add(DoctorCheck(dist, "fail", "not installed (run `uv sync`)"))
     registered = any(ep.name == "agenteval" for ep in metadata.entry_points(group="inspect_ai"))
     add(
-        Check(
+        DoctorCheck(
             "inspect entry point",
             "ok" if registered else "warn",
             "agenteval sandboxes registered"
@@ -939,11 +938,11 @@ def doctor(
         profiles: ProfileSet | None = load_profiles(config_dir)
     except ConfigError as ex:
         profiles = None
-        add(Check("config", "fail", str(ex)))
+        add(DoctorCheck("config", "fail", str(ex)))
     if profiles is None:
         return checks
     add(
-        Check(
+        DoctorCheck(
             "config",
             "ok",
             f"{config_dir}: {len(profiles.models)} models, {len(profiles.harnesses)} harnesses, "
@@ -953,14 +952,14 @@ def doctor(
     for path in _run_files(config_dir):
         try:
             cells = expand_matrix(load_run(path), profiles)
-            add(Check(f"run {path.stem}", "ok", f"{len(cells)} tasks"))
+            add(DoctorCheck(f"run {path.stem}", "ok", f"{len(cells)} tasks"))
         except ConfigError as ex:
-            add(Check(f"run {path.stem}", "fail", str(ex)))
+            add(DoctorCheck(f"run {path.stem}", "fail", str(ex)))
 
     if env_name is not None:
         if env_name not in profiles.environments:
             add(
-                Check(
+                DoctorCheck(
                     f"env {env_name}",
                     "fail",
                     f"unknown; available: {sorted(profiles.environments)}",
@@ -983,24 +982,24 @@ def doctor(
                 if rc == 0
                 else f"daemon not reachable: {_first_line(out)}"
             )
-            add(Check("docker", "ok" if rc == 0 else problem, detail))
+            add(DoctorCheck("docker", "ok" if rc == 0 else problem, detail))
         else:
             available["docker"] = False
-            add(Check("docker", problem, "not on PATH"))
+            add(DoctorCheck("docker", problem, "not on PATH"))
     if "tart" in providers:
         if sys.platform != "darwin":
             available["tart"] = False
-            add(Check("tart", problem, "Tart needs a macOS host on Apple silicon"))
+            add(DoctorCheck("tart", problem, "Tart needs a macOS host on Apple silicon"))
         elif shutil.which("tart"):
             rc, out = runner(["tart", "--version"], 15)
             available["tart"] = rc == 0
-            add(Check("tart", "ok" if rc == 0 else problem, _first_line(out)))
+            add(DoctorCheck("tart", "ok" if rc == 0 else problem, _first_line(out)))
         else:
             available["tart"] = False
             from agenteval.environments.tart.image import TART_RELEASES_URL
 
             add(
-                Check(
+                DoctorCheck(
                     "tart",
                     problem,
                     f"not on PATH; install the release tarball from {TART_RELEASES_URL} "
@@ -1012,23 +1011,23 @@ def doctor(
         sbx_problems, sbx_warnings = sbx_status()
         available["sbx"] = not sbx_problems
         for text in sbx_problems:
-            add(Check("sbx", problem, text))
+            add(DoctorCheck("sbx", problem, text))
         for text in sbx_warnings:
-            add(Check("sbx", "warn", text))
+            add(DoctorCheck("sbx", "warn", text))
         if not sbx_problems:
-            add(Check("sbx", "ok", "signed in; SSH agent forwarding off"))
+            add(DoctorCheck("sbx", "ok", "signed in; SSH agent forwarding off"))
 
     for env in environments:
         label = f"env {env.name}"
         if not available.get(env.provider, False):
-            add(Check(label, problem, f"{env.provider} unavailable; image not checked"))
+            add(DoctorCheck(label, problem, f"{env.provider} unavailable; image not checked"))
             continue
         if env.provider == "docker" and env.docker is not None:
             rc, _ = runner(
                 ["docker", "image", "inspect", "--format", "{{.Id}}", env.docker.image], 20
             )
             add(
-                Check(
+                DoctorCheck(
                     label,
                     "ok" if rc == 0 else problem,
                     f"image {env.docker.image} "
@@ -1039,7 +1038,7 @@ def doctor(
             try:
                 loaded = sbx_template_id(env.sbx.template)
                 add(
-                    Check(
+                    DoctorCheck(
                         label,
                         "ok" if loaded else problem,
                         f"sbx template {env.sbx.template} "
@@ -1047,12 +1046,12 @@ def doctor(
                     )
                 )
             except Exception as ex:
-                add(Check(label, problem, f"could not list sbx templates: {ex}"))
+                add(DoctorCheck(label, problem, f"could not list sbx templates: {ex}"))
         elif env.provider == "tart" and env.tart is not None:
             try:
                 exists = tart_image_exists(env.tart.image)
                 add(
-                    Check(
+                    DoctorCheck(
                         label,
                         "ok" if exists else problem,
                         f"VM image {env.tart.image} "
@@ -1060,16 +1059,26 @@ def doctor(
                     )
                 )
             except Exception as ex:
-                add(Check(label, problem, f"could not check VM image: {type(ex).__name__}: {ex}"))
+                add(
+                    DoctorCheck(
+                        label, problem, f"could not check VM image: {type(ex).__name__}: {ex}"
+                    )
+                )
             key = Path(env.tart.ssh_key).expanduser()
             if not key.is_file():
-                add(Check(f"{label} ssh key", problem, f"{key} missing (created by env build)"))
+                add(
+                    DoctorCheck(
+                        f"{label} ssh key", problem, f"{key} missing (created by env build)"
+                    )
+                )
             elif key.stat().st_mode & 0o077:
                 add(
-                    Check(f"{label} ssh key", "warn", f"{key} is group/world accessible; chmod 600")
+                    DoctorCheck(
+                        f"{label} ssh key", "warn", f"{key} is group/world accessible; chmod 600"
+                    )
                 )
             else:
-                add(Check(f"{label} ssh key", "ok", str(key)))
+                add(DoctorCheck(f"{label} ssh key", "ok", str(key)))
 
     if sys.platform == "darwin" and any(
         e.provider == "tart" and e.tart is not None and e.tart.network == "nat"
@@ -1089,12 +1098,12 @@ def doctor(
 
     dotenv = load_dotenv_file()
     if dotenv is not None:
-        add(Check(".env", "ok", f"loaded {dotenv} (shell variables take precedence)"))
+        add(DoctorCheck(".env", "ok", f"loaded {dotenv} (shell variables take precedence)"))
     for model in profiles.models.values():
         for var in model.required_env:
             unset = var in missing_env([model])
             add(
-                Check(
+                DoctorCheck(
                     f"env var {var}",
                     "warn" if unset else "ok",
                     f"{'not set' if unset else 'set'} (model {model.name})",
@@ -1103,7 +1112,7 @@ def doctor(
     return checks
 
 
-def format_checks(checks: Sequence[Check]) -> str:
+def format_checks(checks: Sequence[DoctorCheck]) -> str:
     return _table(
         ["status", "check", "detail"], [[c.status.upper(), c.name, c.detail] for c in checks]
     )

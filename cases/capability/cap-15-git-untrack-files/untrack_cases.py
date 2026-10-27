@@ -1,6 +1,6 @@
 """Reference cases for cap-15-git-untrack-files: tracked files, ignore rules and local copies."""
 
-from agenteval.suites.cases import Case
+from agenteval.suites.reference_cases import Case
 
 SETUP = """
 import subprocess

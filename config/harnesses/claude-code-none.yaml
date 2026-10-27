@@ -1,3 +1,4 @@
+# yaml-language-server: $schema=../schema/harness.schema.json
 description: Claude Code, no inner sandbox
 agent: claude_code
 version: "2.1.292"

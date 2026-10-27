@@ -11,13 +11,12 @@ from inspect_ai.solver import Solver
 from agenteval.config import MatrixCell
 from agenteval.harnesses import claude_code
 from agenteval.harnesses.opencode import install_agent, run_agent
-from agenteval.harnesses.sandbox_exec import install_inner_sandbox, render_sandbox_exec
+from agenteval.harnesses.sandbox_exec import install_inner_sandbox
 
 __all__ = [
     "harness_solvers",
     "install_agent",
     "install_inner_sandbox",
-    "render_sandbox_exec",
     "run_agent",
 ]
 

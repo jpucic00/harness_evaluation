@@ -1,3 +1,4 @@
+# yaml-language-server: $schema=../schema/environment.schema.json
 description: Docker container (Ubuntu 24.04) per sample; used for local validation, later gVisor/Kata via runtime
 provider: docker
 agent_user: agent

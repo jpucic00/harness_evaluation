@@ -3,7 +3,7 @@ import json, sys
 from pathlib import Path
 import yaml
 from inspect_evals.ipi_coding_agent.constants import DATASET_PATH
-from agenteval.suites.cases import load_case_set, find_cases_file, describe
+from agenteval.suites.reference_cases import load_case_set, find_cases_file, describe
 
 root = Path("src/agenteval/suites/capability_tasks")
 cap = []

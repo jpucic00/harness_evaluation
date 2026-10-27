@@ -288,7 +288,7 @@ or use `uv run agenteval view <run-id>`).
 
 ### Resources
 
-While `eval_set` runs, `agenteval.resources.ResourceSampler` reads every host process with
+While `eval_set` runs, `agenteval.resource_sampler.ResourceSampler` reads every host process with
 `ps` every `resource_interval` seconds (default 2; `0` turns it off) and writes
 `logs/<run-id>/resources.jsonl`. The report's **Resources** section and the index's "Host CPU ·
 peak memory" column come from it. Processes are sorted into groups:
@@ -426,6 +426,6 @@ repo.
 | [harnesses/](../src/agenteval/harnesses/) | `harness_solvers(cell)`, OpenCode and Claude Code install/run (`opencode.py`, `claude_code.py`), `sandbox-exec` templates, the dev launcher template `dev-launch.sh`. |
 | [sandbox_scripts/](../src/agenteval/sandbox_scripts/) | Stdlib-only scripts uploaded into each environment: `probe.py` (runner for the check files in `cases/containment/`), `monitor.py`, `collector.py`, `egress.sh`, `case_runner.py`; for dev sessions `dev_repo.py` (repo import/export), `ptyrelay.py` and `think_shim.py` (reasoning relay for OpenCode). |
 | [dev/](../src/agenteval/dev/) | `agenteval dev`: `commands.py` (start/apply/list), `task.py` (session solver, launcher, docker/tart access), `repo.py` (snapshot, fetch, per-file 3-way apply, fast-forward), `userconfig.py` (CLI config + memory staging, sanitizing, merge back), `review.py` (summary, diffs, prompts), `session.py` (records under `.agenteval/sessions/`). |
-| [suites/](../src/agenteval/suites/) | `SUITES` registry and `build_task`, sample setup (`common.py`), the three suites, `monitors.py`. |
-| [resources.py](../src/agenteval/resources.py) | Host CPU/memory sampler that runs next to `eval_set` (`resources.jsonl`). |
-| [report/](../src/agenteval/report/) | `data.py` (logs -> records -> views), `economics.py` (pure arithmetic), `resources.py` (the Resources section), `build.py` + Jinja templates. |
+| [suites/](../src/agenteval/suites/) | `SUITES` registry and `build_task`, sample setup (`common.py`), the three suites, `monitors.py`, the capability reference-case protocol (`reference_cases.py`). |
+| [resource_sampler.py](../src/agenteval/resource_sampler.py) | Host CPU/memory sampler that runs next to `eval_set` (`resources.jsonl`). |
+| [report/](../src/agenteval/report/) | `records.py` (logs -> records), `scores.py` (scorer values -> typed results), `views.py` (records -> report sections), `economics.py` (pure arithmetic), `resources_view.py` (the Resources section), `build.py` + Jinja templates. |

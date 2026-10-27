@@ -1,6 +1,6 @@
 """Reference cases for cap-10-git-commit-split: the repository's commits and working tree."""
 
-from agenteval.suites.cases import Case
+from agenteval.suites.reference_cases import Case
 
 SETUP = """
 import re

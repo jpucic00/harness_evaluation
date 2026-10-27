@@ -18,7 +18,7 @@ import pytest
 from agenteval import constants
 from agenteval.dev import commands, userconfig
 from agenteval.dev.review import DevIO
-from agenteval.dev.session import load_session
+from agenteval.dev.session import load_session, session_dir
 
 IMAGE = "agenteval/ubuntu-24.04:latest"
 TART_IMAGE = "agenteval-ubuntu-24.04"
@@ -155,10 +155,14 @@ def start(
     *,
     mount: str = "copy",
     model: str = "mock",
+    io: DevIO | None = None,
+    config_dir: Path = REPO / "config",
+    cost_limit: float | None = None,
+    token_limit: int | None = None,
 ) -> tuple[int, str]:
     output: list[str] = []
     code = commands.start_session(
-        config_dir=REPO / "config",
+        config_dir=config_dir,
         cwd=project,
         harness=harness,
         environment=environment,
@@ -167,8 +171,10 @@ def start(
         includes=[],
         agent_config_dir=cfg,
         host_config=cfg is not None,
-        io=scripted_io(output),
+        io=io or scripted_io(output),
         exec_script=script,
+        cost_limit=cost_limit,
+        token_limit=token_limit,
     )
     return code, "\n".join(output)
 
@@ -229,6 +235,56 @@ def test_live_mount_writes_host(environment: str, project: Path) -> None:
     assert (project / "live.txt").read_text() == "live\n"
     assert "?? live.txt" in output
     assert not (project / ".agenteval").exists()
+
+
+LIMIT_SCRIPT = r"""
+set -e
+echo "before the limit" > work.txt
+git add -A && git commit -qm "agent commit"
+echo "uncommitted line" >> a.txt
+"$AGENTEVAL_DEV_LAUNCH" -p "say hi" </dev/null || true
+sleep 600
+"""
+
+
+@pytest.mark.parametrize("kind", ["token", "cost"])
+def test_spend_limit_keeps_the_work(
+    environment: str, project: Path, tmp_path: Path, kind: str
+) -> None:
+    """mockllm counts each reply's characters as output tokens (33 for its default
+    reply), so the first call trips a limit of 1 token, or of $0.00001 at $1 per 1M
+    tokens. Inspect then cancels the sample; the session still exports."""
+    config = tmp_path / "config"
+    shutil.copytree(REPO / "config", config)
+    mock = config / "models" / "mock.yaml"
+    mock.write_text(mock.read_text().replace("input: 0\n  output: 0", "input: 1\n  output: 1"))
+    assert "output: 1" in mock.read_text()
+    output: list[str] = []
+    answers = DevIO(
+        out=output.append,
+        ask=lambda prompt: "l",  # review later: the changes stay pending
+        edit=lambda content, suffix: content,
+        color=False,
+        interactive=True,
+    )
+    code, _ = start(
+        environment, project, None, "claude-code-none", LIMIT_SCRIPT, io=answers,
+        config_dir=config,
+        token_limit=1 if kind == "token" else None,
+        cost_limit=0.00001 if kind == "cost" else None,
+    )  # fmt: skip
+    text = "\n".join(output)
+    assert code == 0, text
+    reached = "Output token limit reached (1 tokens)" if kind == "token" else "Spend limit reached"
+    assert reached in text and "the CLI was stopped" in text, text
+    session_id = text.split("(session ", 1)[1].split(")", 1)[0]
+    session = load_session(constants.checkout_root(), session_id)
+    assert session.status == "pending"
+    sdir = session_dir(constants.checkout_root(), session_id)
+    patch = (sdir / "worktree.patch").read_text()
+    assert "before the limit" in patch and "uncommitted line" in patch
+    assert (sdir / "commits.bundle").is_file()
+    assert git(project, "log", "-1", "--format=%s") == "init"  # nothing applied yet
 
 
 SUBSCRIPTION_SCRIPT = r"""

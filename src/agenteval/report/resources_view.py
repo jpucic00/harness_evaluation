@@ -1,6 +1,6 @@
 """The report's Resources section: host CPU and memory per environment.
 
-Reads ``resources.jsonl`` (written by ``agenteval.resources.ResourceSampler`` during
+Reads ``resources.jsonl`` (written by ``agenteval.resource_sampler.ResourceSampler`` during
 the run) into per-group totals, time series for the charts, and per-configuration
 figures. Per-configuration figures join per-sandbox readings (a Tart VM process, a
 Docker container) to samples through the sandbox name each sample records in its
@@ -18,7 +18,7 @@ from typing import Protocol
 
 from pydantic import BaseModel, Field, ValidationError
 
-from agenteval.resources import AGENTEVAL, DOCKER, GROUPS, RESOURCES_FILE, SBX, TART
+from agenteval.resource_sampler import AGENTEVAL, DOCKER, GROUPS, RESOURCES_FILE, SBX, TART
 
 GROUP_LABELS = {
     DOCKER: "Docker",

@@ -1,7 +1,7 @@
 """Inspect sandbox provider: every sample runs in a fresh Tart Linux VM.
 
 - task_init:      checks Tart, the prebuilt image (``agenteval env build``) and the SSH key.
-- sample_init:    ``tart clone`` the image to ``agenteval-<8hex>``, ``tart set`` cpu/memory,
+- sample_init:    ``tart clone`` the image to ``agenteval-<8hex>``, ``tart set`` cpus/memory,
                   ``tart run --no-graphics`` (no host folder sharing), ``tart ip --wait``,
                   then poll SSH until it answers.
 - exec/files:     over ``ssh`` with a dedicated key; commands switch user with ``sudo -n``.
@@ -36,7 +36,7 @@ from inspect_ai.util import (
 )
 from pydantic import BaseModel, Field, field_validator
 
-from agenteval.config import TartSettings
+from agenteval.config import TartSettings, size_mb
 from agenteval.environments.guest import (
     FILE_TIMEOUT,
     READ_SCRIPT,
@@ -89,12 +89,6 @@ class TartSandboxConfig(TartSettings):
         if not value.startswith("/"):
             raise ValueError("default_cwd must be an absolute path")
         return value
-
-    @classmethod
-    def from_settings(
-        cls, settings: TartSettings, *, default_cwd: str, default_user: str = "root"
-    ) -> TartSandboxConfig:
-        return cls(**settings.model_dump(), default_cwd=default_cwd, default_user=default_user)
 
 
 def resolve_config(config: SandboxEnvironmentConfigType | None) -> TartSandboxConfig:
@@ -203,7 +197,7 @@ class TartSandboxEnvironment(SandboxEnvironment):
         try:
             started = time.monotonic()
             await vm.clone(cfg.image)
-            await vm.configure(cpu=cfg.cpu, memory_mb=cfg.memory_mb)
+            await vm.configure(cpus=cfg.cpus, memory_mb=size_mb(cfg.memory))
             await vm.start(network=cfg.network, dirs=cfg.shared_dirs)
             ip = await vm.wait_ip(cfg.boot_timeout)
             target = SSHTarget(host=ip, user=cfg.ssh_user, key=Path(cfg.ssh_key).expanduser())

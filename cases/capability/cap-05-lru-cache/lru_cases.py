@@ -3,7 +3,7 @@
 Each stateful case returns what the original test asserted on, as a tuple.
 """
 
-from agenteval.suites.cases import Case, Raises
+from agenteval.suites.reference_cases import Case, Raises
 
 SETUP = """
 from lru import LRUCache

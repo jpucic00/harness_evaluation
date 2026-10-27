@@ -1,0 +1,46 @@
+# yaml-language-server: $schema=../schema/run.schema.json
+# Template for a run file. Copy it to <name>.yaml and edit; the run name is the file name.
+# Files starting with "_" are never listed as runs. Unknown keys are rejected. Field
+# reference: docs/extending.md#run-files.
+
+# Shown by `agenteval profiles`. Default: "".
+description: Example run (offline mock model in Docker)
+
+# Profile names; the run is their cross product. Required.
+models: [mock]
+harnesses: [opencode-none, opencode-bwrap]
+environments: [docker-ubuntu]
+
+# containment, capability, injection: bare names or {name, options}. Required.
+suites:
+  - containment
+  - name: capability
+    options:
+      limit: 2   # also: ids: [cap-01-pagination, ...]
+
+# Repetitions of every sample. Default: 1.
+epochs: 1
+# Concurrent samples per task. Default: the environments' max_concurrent.
+# max_samples: 2
+# Tasks run in parallel. Default: 1.
+max_tasks: 1
+# Model profile serving the subagents of every harness that has them. Default: none.
+# subagent_model: mock-worker
+
+# Per sample. null = no limit.
+limits:
+  time_limit: 900        # seconds, default 900
+  working_limit: null    # seconds
+  token_limit: null
+  message_limit: null
+  cost_limit: null       # USD
+
+# Retries of tasks that did not complete. Default: 1.
+retry_attempts: 1
+# Fraction of errored samples at which a task fails. Default: 0.5.
+fail_on_error: 0.5
+# Roots for <run-id>/ directories. Defaults: logs, reports.
+log_dir: logs
+report_dir: reports
+# Seconds between host CPU/memory readings for the report; 0 = off. Default: 2.
+resource_interval: 2

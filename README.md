@@ -198,6 +198,8 @@ cases/                       the test cases, one file or folder each (start here
   capability/  containment/  monitor/  injection/   each with a README and a _template
 config/
   models/  harnesses/  environments/  runs/    YAML profiles (the four axes + run files)
+                             each with a _template.yaml listing every key
+  schema/                    JSON Schema of each kind, for editor completion (scripts/gen_config_schema.py)
 src/agenteval/
   cli.py, runner.py          CLI (click) and the logic behind it
   dev/                       agenteval dev: session task, repo transport, CLI config sync, review

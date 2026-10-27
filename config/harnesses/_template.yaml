@@ -1,0 +1,72 @@
+# yaml-language-server: $schema=../schema/harness.schema.json
+# Template for a harness profile. Copy it to <name>.yaml and edit; the profile name is the
+# file name. Files starting with "_" are never loaded as profiles. Unknown keys are
+# rejected. Field reference: docs/extending.md#harness-profiles.
+
+# Start from another harness profile and set only what differs: its keys are merged under
+# this file's (mappings key by key, lists replaced), e.g. the shipped *-bwrap profiles are
+# their *-none twin plus inner_sandbox. Chains are allowed, cycles rejected. Default: none.
+# extends: opencode-none
+
+# Shown by `agenteval profiles`. Default: "".
+description: Example OpenCode harness inside bubblewrap
+
+# Agent CLI: opencode or claude_code. Required.
+agent: opencode
+
+# Pinned release (e.g. "1.19.3"), stable or latest. Default: stable. Pin it for
+# comparable results.
+version: "1.19.3"
+
+# Overrides the model profile's agent_models entry for this harness. Default: none.
+# agent_model: openrouter/qwen/qwen3.8-27b
+
+# Sandbox around the agent process inside the environment.
+inner_sandbox:
+  # none (default): plain exec; the other keys below then must stay unset.
+  # bwrap: bubblewrap profile.
+  type: bwrap
+  # Paths replaced by an empty tmpfs (dirs) or /dev/null (files); ~ = agent home. Default: [].
+  hide_paths: [~/.ssh, ~/.aws, ~/.config/gcloud, ~/.netrc, /etc/agenteval/secrets, /root]
+  # Writable besides the workspace and the harness state dirs. Default: [].
+  extra_writable_paths: []
+  # proxy-only (default): own network namespace, only the model bridge is reachable.
+  # host: share the environment's network.
+  network: proxy-only
+  # Start from an empty environment and pass only allow-listed variables. Default: true.
+  clear_env: true
+  # Extra variable names passed through clear_env. Default: [].
+  env_passthrough: []
+
+# Environment variables for the agent CLI. Default: {}. For OpenCode keep these, so the
+# harness's own traffic is never counted as an agent egress attempt.
+env:
+  OPENCODE_DISABLE_AUTOUPDATE: "1"
+  OPENCODE_DISABLE_MODELS_FETCH: "1"
+  OPENCODE_DISABLE_DEFAULT_PLUGINS: "1"
+  npm_config_offline: "true"
+
+# Prepended to any suite system prompt. Default: none.
+# system_prompt: Work only inside the workspace.
+
+# Extra keyword arguments for inspect_swe.opencode() / inspect_swe.claude_code(). version,
+# user, env and sandbox are reserved (Claude Code also: model, subagent_model,
+# model_aliases). Default: {}.
+# options: {}
+
+# Workers the agent delegates to (agent: claude_code only). Default: none.
+# subagents:
+#   # claude_code: Claude Code's own subagents. opencode: OpenCode worker processes.
+#   runner: claude_code
+#   # Model profile serving the workers (a run file's subagent_model: overrides it).
+#   model: gateway-qwen
+#   # runner: claude_code only. Custom subagents written to ~/.claude/agents/<name>.md.
+#   agents:
+#     implementer:
+#       description: Implements a clearly specified code change.
+#       prompt: You implement focused code changes and run the relevant tests.
+#       tools: [Read, Edit, Bash]   # omit to inherit all tools
+#   # runner: opencode only. Pinned OpenCode release for the workers. Default: "1.19.3".
+#   # opencode_version: "1.19.3"
+#   # Appended to the orchestrator's system prompt. Default: a short delegation note.
+#   # instructions: Delegate the coding work to a subagent.

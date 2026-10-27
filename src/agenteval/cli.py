@@ -244,6 +244,8 @@ _DEV_START_OPTIONS = (
     "agent_config_dir",
     "no_host_config",
     "exec_script",
+    "cost_limit",
+    "token_limit",
 )
 
 
@@ -296,6 +298,19 @@ def _dev_config_dir(ctx: click.Context, config_dir: Path) -> Path:
     help="Start with an empty CLI config and bring no CLI config back (repo changes are "
     "still reviewed).",
 )
+@click.option(
+    "--cost-limit",
+    type=click.FloatRange(min=0, min_open=True),
+    metavar="USD",
+    help="Stop the CLI once the session's model calls cost this much (needs model pricing). "
+    "Default: no limit.",
+)
+@click.option(
+    "--token-limit",
+    type=click.IntRange(min=1),
+    metavar="N",
+    help="Stop the CLI once the session's model calls produced N output tokens. Default: no limit.",
+)
 @click.option("--exec", "exec_script", hidden=True, help="Test hook: run a script, no TTY.")
 @click.pass_context
 def dev(
@@ -308,6 +323,8 @@ def dev(
     includes: tuple[str, ...],
     agent_config_dir: Path | None,
     no_host_config: bool,
+    cost_limit: float | None,
+    token_limit: int | None,
     exec_script: str | None,
 ) -> None:
     """Work interactively in a harness inside an environment, on the current repo.
@@ -330,6 +347,8 @@ def dev(
         "agent_config_dir": agent_config_dir,
         "no_host_config": no_host_config,
         "exec_script": exec_script,
+        "cost_limit": cost_limit,
+        "token_limit": token_limit,
     }
     if ctx.invoked_subcommand is not None:
         used = [name for name in _DEV_START_OPTIONS if given[name]]
@@ -354,6 +373,8 @@ def dev(
             host_config=not no_host_config,
             io=terminal_io(),
             exec_script=exec_script,
+            cost_limit=cost_limit,
+            token_limit=token_limit,
         )
     raise SystemExit(code)
 

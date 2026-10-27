@@ -1,15 +1,16 @@
+# yaml-language-server: $schema=../schema/environment.schema.json
 description: Fresh Tart Linux VM (Ubuntu 24.04 arm64) per sample on a macOS host
 provider: tart
 agent_user: agent
 workspace: /workspace
 egress: deny          # agent user may not open outbound connections (nftables owner match)
 ambient_secrets: true
-max_concurrent: 2     # VMs booted in parallel; each takes cpu/memory below
+max_concurrent: 2     # VMs booted in parallel; each takes cpus/memory below
 tart:
   base_image: ghcr.io/cirruslabs/ubuntu:24.04
   image: agenteval-ubuntu-24.04
-  cpu: 4
-  memory_mb: 4096
+  cpus: 4
+  memory: 4g
   network: nat        # "softnet" isolates the VM from the host but needs the privileged softnet helper
   ssh_user: admin
   ssh_key: ~/.agenteval/ssh/id_ed25519

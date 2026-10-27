@@ -153,3 +153,61 @@ def test_run_eval_bounds_model_retries(tmp_path: Path, monkeypatch: pytest.Monke
     assert seen["max_retries"] == commands.DEV_MAX_RETRIES
     assert seen["attempt_timeout"] == commands.DEV_ATTEMPT_TIMEOUT >= 600  # slow turns survive
     assert seen["display"] == "none"
+
+
+# ------------------------------------------------------------------- spend limits
+
+REPO = Path(__file__).resolve().parents[1]
+
+
+def _start(checkout: Path, tmp_path: Path, **kwargs: Any) -> int:
+    defaults: dict[str, Any] = {
+        "config_dir": REPO / "config",
+        "cwd": tmp_path,
+        "harness": "claude-code-none",
+        "environment": "docker-ubuntu",
+        "model": "mock",
+        "mount": "copy",
+        "includes": [],
+        "agent_config_dir": None,
+        "host_config": False,
+        "io": IO,
+    }
+    return commands.start_session(**(defaults | kwargs))
+
+
+@pytest.mark.parametrize(
+    ("kwargs", "error"),
+    [
+        # gateway profiles have no pricing: a cost cap could never trip
+        ({"model": "gateway-qwen", "cost_limit": 1.0}, "no pricing in: gateway-qwen"),
+        (
+            {"harness": "claude-code-subagents-none", "subagent_model": "gateway-qwen",
+             "cost_limit": 1.0},
+            "no pricing in: gateway-qwen",
+        ),
+        # the subscription's calls never reach Inspect
+        ({"model": "claude-sonnet-subscription", "token_limit": 100}, "bypass Inspect"),
+        ({"model": "claude-sonnet-subscription", "cost_limit": 1.0}, "bypass Inspect"),
+        ({"cost_limit": 0.0}, "--cost-limit must be more than 0"),
+        ({"token_limit": -5}, "--token-limit must be more than 0"),
+    ],
+)  # fmt: skip
+def test_start_refuses_unenforceable_limits(
+    checkout: Path, tmp_path: Path, kwargs: dict[str, Any], error: str
+) -> None:
+    with pytest.raises(ConfigError, match=error):
+        _start(checkout, tmp_path, **kwargs)
+    assert not (checkout / ".agenteval").exists()  # refused before anything started
+
+
+def test_limits_allowed_with_priced_models_or_tokens_only() -> None:
+    from agenteval.config import load_profiles
+
+    models = load_profiles(REPO / "config").models
+    priced = [models["mock"], models["mock-worker"]]
+    commands._check_limits(priced, 2.5, 10_000)
+    # a token cap needs no pricing
+    commands._check_limits([models["gateway-qwen"]], None, 10_000)
+    # no limit: nothing is checked, not even a subscription
+    commands._check_limits([models["claude-sonnet-subscription"]], None, None)

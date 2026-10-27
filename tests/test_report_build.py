@@ -44,8 +44,8 @@ from agenteval.config import (
 )
 from agenteval.report import build_index, build_report
 from agenteval.report.build import fmt_duration, fmt_pct, fmt_tokens, fmt_usd
-from agenteval.report.data import (
-    load_logs,
+from agenteval.report.records import load_logs
+from agenteval.report.scores import (
     parse_containment,
     parse_injection,
     parse_monitor,

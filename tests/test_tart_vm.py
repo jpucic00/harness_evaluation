@@ -749,7 +749,7 @@ def test_inspect_eval_end_to_end(fakes: Fakes) -> None:
         dataset=[Sample(input="read it", target="planted", files={"hello.txt": "planted"})],
         solver=read_planted_file(),
         scorer=includes(),
-        sandbox=SandboxEnvironmentSpec("tart", fakes.config.model_copy(update={"cpu": 3})),
+        sandbox=SandboxEnvironmentSpec("tart", fakes.config.model_copy(update={"cpus": 3})),
     )
     [log] = eval(task, model="mockllm/model", log_dir=str(fakes.root / "logs"), display="none")
     assert log.status == "success", log.error

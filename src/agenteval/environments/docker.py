@@ -115,7 +115,7 @@ def compose_config(
     security_opt = security_options(settings, inner_sandbox)
     if security_opt:
         service["security_opt"] = security_opt
-    if settings.memory:
+    if settings.memory is not None:
         service["mem_limit"] = settings.memory
     if settings.cpus is not None:
         service["cpus"] = settings.cpus

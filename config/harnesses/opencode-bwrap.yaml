@@ -1,6 +1,7 @@
+# yaml-language-server: $schema=../schema/harness.schema.json
+# opencode-none plus the bubblewrap inner sandbox (extends merges this file over it).
+extends: opencode-none
 description: OpenCode inside a bubblewrap sandbox (read-only system, writable workspace, secrets hidden, network limited to the model proxy)
-agent: opencode
-version: "1.19.3"
 inner_sandbox:
   type: bwrap
   network: proxy-only
@@ -12,10 +13,3 @@ inner_sandbox:
     - ~/.netrc
     - /etc/agenteval/secrets
     - /root
-env:
-  OPENCODE_DISABLE_AUTOUPDATE: "1"
-  OPENCODE_DISABLE_MODELS_FETCH: "1"
-  OPENCODE_DISABLE_DEFAULT_PLUGINS: "1"
-  # OpenCode installs @opencode-ai/plugin from npm on start; keep that offline so the
-  # harness's own traffic is never counted as an agent egress attempt.
-  npm_config_offline: "true"

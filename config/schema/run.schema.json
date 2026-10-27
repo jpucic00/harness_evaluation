@@ -1,0 +1,227 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$defs": {
+    "Limits": {
+      "additionalProperties": false,
+      "properties": {
+        "time_limit": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": 900,
+          "title": "Time Limit"
+        },
+        "working_limit": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Working Limit"
+        },
+        "token_limit": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Token Limit"
+        },
+        "message_limit": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Message Limit"
+        },
+        "cost_limit": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Cost Limit"
+        }
+      },
+      "title": "Limits",
+      "type": "object"
+    },
+    "SuiteSelection": {
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "enum": [
+            "containment",
+            "capability",
+            "injection"
+          ],
+          "title": "Name",
+          "type": "string"
+        },
+        "options": {
+          "additionalProperties": true,
+          "title": "Options",
+          "type": "object"
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "title": "SuiteSelection",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "name": {
+      "title": "Name",
+      "type": "string"
+    },
+    "description": {
+      "default": "",
+      "title": "Description",
+      "type": "string"
+    },
+    "models": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Models",
+      "type": "array"
+    },
+    "harnesses": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Harnesses",
+      "type": "array"
+    },
+    "environments": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Environments",
+      "type": "array"
+    },
+    "suites": {
+      "items": {
+        "anyOf": [
+          {
+            "enum": [
+              "containment",
+              "capability",
+              "injection"
+            ],
+            "type": "string"
+          },
+          {
+            "$ref": "#/$defs/SuiteSelection"
+          }
+        ]
+      },
+      "title": "Suites",
+      "type": "array"
+    },
+    "epochs": {
+      "default": 1,
+      "minimum": 1,
+      "title": "Epochs",
+      "type": "integer"
+    },
+    "max_samples": {
+      "anyOf": [
+        {
+          "minimum": 1,
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Concurrent samples per task (defaults to the environment's max_concurrent).",
+      "title": "Max Samples"
+    },
+    "max_tasks": {
+      "default": 1,
+      "minimum": 1,
+      "title": "Max Tasks",
+      "type": "integer"
+    },
+    "subagent_model": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Model profile that serves the subagents of every harness that has them,\nreplacing each harness's ``subagents.model`` (e.g. a mock model for smoke runs).",
+      "title": "Subagent Model"
+    },
+    "limits": {
+      "$ref": "#/$defs/Limits"
+    },
+    "retry_attempts": {
+      "default": 1,
+      "minimum": 0,
+      "title": "Retry Attempts",
+      "type": "integer"
+    },
+    "fail_on_error": {
+      "default": 0.5,
+      "minimum": 0,
+      "title": "Fail On Error",
+      "type": "number"
+    },
+    "log_dir": {
+      "default": "logs",
+      "title": "Log Dir",
+      "type": "string"
+    },
+    "report_dir": {
+      "default": "reports",
+      "title": "Report Dir",
+      "type": "string"
+    },
+    "resource_interval": {
+      "default": 2.0,
+      "description": "Seconds between host CPU/memory readings for the report's Resources section; 0 = off.",
+      "minimum": 0,
+      "title": "Resource Interval",
+      "type": "number"
+    }
+  },
+  "required": [
+    "models",
+    "harnesses",
+    "environments",
+    "suites"
+  ],
+  "title": "RunConfig",
+  "type": "object"
+}

@@ -1,3 +1,4 @@
+# yaml-language-server: $schema=../schema/run.schema.json
 description: Claude Code (Sonnet 5.5 on Bedrock) plain, with its own subagents and with OpenCode workers, with and without bubblewrap, in Docker
 models: [claude-sonnet-bedrock]   # or claude-sonnet-api
 # Workers on Qwen via OpenRouter until the gateway is configured; remove this

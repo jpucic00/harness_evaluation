@@ -1,9 +1,14 @@
+# yaml-language-server: $schema=../schema/model.schema.json
 # Claude Sonnet 5.5 via the Anthropic API (Console API key, not a subscription:
 # every call goes through Inspect on the host, which only supports API keys).
 # NOTE: Anthropic is a third-party service; prompts and code go to it.
 description: Claude Sonnet 5.5 on the Anthropic API
 inspect_model: anthropic/claude-sonnet-5-5
 required_env: [ANTHROPIC_API_KEY]
+agent_models:
+  # With an opencode harness: Anthropic's request format instead of the OpenAI-style
+  # default (inspect_swe's own default id, which OpenCode's catalog knows).
+  opencode: anthropic/claude-sonnet-4-5
 pricing:  # USD per 1M tokens, list price per third-party summaries 2026-10-18; verify on platform.claude.com/pricing
   input: 2.00
   output: 10.00

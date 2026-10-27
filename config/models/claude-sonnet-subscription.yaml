@@ -1,3 +1,4 @@
+# yaml-language-server: $schema=../schema/model.schema.json
 # Claude Sonnet 5.5 on your own Claude subscription (Pro, Max, Team or Enterprise).
 # For `agenteval dev` with the claude-code-none / claude-code-bwrap harnesses only.
 #

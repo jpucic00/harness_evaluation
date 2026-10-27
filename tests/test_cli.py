@@ -25,7 +25,7 @@ from inspect_ai.model._model_info import clear_model_info_cache
 from inspect_ai.scorer import match
 from inspect_ai.solver import Generate, Solver, TaskState, generate, solver
 
-from agenteval import runner
+from agenteval import environments, runner
 from agenteval.cli import main
 from agenteval.config import (
     ConfigError,
@@ -324,7 +324,7 @@ def test_run_keeps_failed_attempts_and_records_image_identity(
     (call,) = calls
     assert call["retry_cleanup"] is False
     assert call["retry_attempts"] == plan.run.retry_attempts
-    script_hash = hashlib.sha256(runner.provision_script().read_bytes()).hexdigest()
+    script_hash = hashlib.sha256(environments.PROVISION_SCRIPT.read_bytes()).hexdigest()
     assert call["metadata"] == {
         "agenteval_run_id": "meta",
         "agenteval_run": "smoke-docker",
@@ -648,7 +648,7 @@ def test_env_build_tart(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None
     monkeypatch.setitem(sys.modules, "agenteval.environments.tart.image", fake)
     script = tmp_path / "provision.sh"
     script.write_text("#!/bin/sh\n")
-    monkeypatch.setattr(runner, "provision_script", lambda: script)
+    monkeypatch.setattr(environments, "PROVISION_SCRIPT", script)
 
     result = invoke("env", "build", "tart-ubuntu", "--force")
     assert result.exit_code == 0, result.output
@@ -666,7 +666,7 @@ def test_env_build_unknown() -> None:
 
 
 def test_provision_script_path_points_into_package() -> None:
-    path = runner.provision_script()
+    path = environments.PROVISION_SCRIPT
     assert path.parts[-3:] == ("environments", "provision", "provision.sh")
 
 
@@ -1003,6 +1003,36 @@ def test_dev_forwards_options(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -
     assert seen["cwd"] == Path.cwd()
     # cwd is a tmp dir (autouse fixture): profiles still come from the checkout
     assert seen["config_dir"] == REPO / "config"
+
+
+def test_dev_forwards_limits(monkeypatch: pytest.MonkeyPatch) -> None:
+    seen = _capture_dev_start(monkeypatch)
+    base = ["dev", "--harness", "h", "--env", "e", "--model", "m", "--exec", "true"]
+    result = CliRunner().invoke(main, base)
+    assert result.exit_code == 0, result.output
+    assert seen["cost_limit"] is None and seen["token_limit"] is None  # no default limit
+    result = CliRunner().invoke(main, [*base, "--cost-limit", "2.5", "--token-limit", "5000"])
+    assert result.exit_code == 0, result.output
+    assert seen["cost_limit"] == 2.5 and seen["token_limit"] == 5000
+
+
+@pytest.mark.parametrize(
+    "option", [["--cost-limit", "0"], ["--cost-limit", "-1"], ["--token-limit", "0"]]
+)
+def test_dev_rejects_non_positive_limits(
+    monkeypatch: pytest.MonkeyPatch, option: list[str]
+) -> None:
+    _capture_dev_start(monkeypatch)
+    args = ["dev", "--harness", "h", "--env", "e", "--model", "m", "--exec", "true", *option]
+    result = CliRunner().invoke(main, args)
+    assert result.exit_code == 2 and "Invalid value" in result.output
+
+
+@pytest.mark.parametrize("option", [["--cost-limit", "1"], ["--token-limit", "10"]])
+def test_dev_subcommands_reject_limits(option: list[str]) -> None:
+    for sub in (["list"], ["apply", "x"]):
+        result = CliRunner().invoke(main, ["dev", *option, *sub])
+        assert result.exit_code == 2 and "subcommands" in result.output
 
 
 def test_dev_explicit_config_dir(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:

@@ -14,7 +14,27 @@ Most extensions are a new YAML file. Some need code.
 | A run file | yes | none |
 
 All profiles live under `config/<kind>/<name>.yaml`. The profile name is the file name unless
-the file sets `name:`. Unknown keys are rejected, so a typo fails loudly. After any change:
+the file sets `name:`. Unknown keys are rejected, so a typo fails loudly, and so are settings
+that would have no effect (another provider's settings block, `inner_sandbox` options with
+`type: none`, `subagents.opencode_version` with `runner: claude_code`) and keys that were
+renamed (the error names the new key).
+
+A profile can start from another profile of the same kind with `extends: <profile name>`
+(see [the bwrap harnesses](#variants-with-extends)). The other profile's settings are merged
+under the file's own: mappings key by key, lists and other values replaced. Chains are
+allowed, cycles and unknown names are rejected, and `name` is never inherited. `extends`
+itself is not part of the loaded profile, so it never shows up in task metadata or reports.
+Run files have no `extends`.
+
+Start a new profile or run file from the kind's `_template.yaml`: it lists every key with its
+default and allowed values. Files whose name starts with `_` are never loaded or listed. The
+first line of every file, `# yaml-language-server: $schema=../schema/<kind>.schema.json`, points
+editors with the YAML language server (VS Code's YAML extension) at the JSON Schema in
+`config/schema/`, for completion and validation as you type. After changing a model in
+[config.py](../src/agenteval/config.py), regenerate the schemas with
+`uv run python scripts/gen_config_schema.py` (a test fails while they are stale).
+
+After any change:
 
 ```sh
 uv run agenteval profiles                     # does it parse, and does it show up?
@@ -35,7 +55,7 @@ uv run agenteval doctor --env <environment>   # tools, images, env vars
 | `connection` | none | How the host reaches the provider. OpenAI-compatible providers only (e.g. `openai-api/...`, `openrouter/...`, `openai/...`). One key, `proxy`: `environment` (the default) uses `HTTP(S)_PROXY`, `ALL_PROXY` and the OS proxy settings as usual; `direct` ignores them, for a gateway reached over a VPN that drops proxied calls. Setting `connection` gives the profile its own HTTP client ([models.py](../src/agenteval/models.py)), which trusts what Inspect's own client trusts (`SSL_CERT_FILE`, else `SSL_CERT_DIR`, else the OS trust store) and a client certificate from `MTLS_CERT_FILE` / `MTLS_KEY_FILE` / `MTLS_KEY_PASSWORD`, or from a `.p12`/`.pfx` in `MTLS_PKCS12_FILE` / `MTLS_PKCS12_PASSWORD` (needs `uv sync --extra mtls`). Without it, Inspect's default client is used. |
 | `pricing` | none | USD per 1M tokens: `input`, `output`, optional `input_cache_read`, `input_cache_write`. Unset cache prices mean no cache discount: those tokens are charged at the `input` rate. Without `pricing`, cost is reported as `unknown`. |
 | `required_env` | `[]` | Host env vars that must be set before a run starts. They are checked by name; values are never printed. |
-| `agent_models` | `{}` | Model id handed to each agent CLI, keyed by harness `agent` (e.g. `opencode: openrouter/qwen/qwen3.8-27b`). It only selects the CLI's request format and prompt template; OpenCode gets a placeholder key for its provider (`OPENROUTER_API_KEY=sk-none`). The model that answers is always `inspect_model` (see [architecture.md](architecture.md#model-calls-the-bridge)), except with `access: subscription`, where `claude_code` is the model Claude Code asks Anthropic for. An OpenCode session in `agenteval dev` needs the `opencode` entry (or the harness's `agent_model`). |
+| `agent_models` | `opencode: openrouter/qwen/qwen3.8-27b` (bridge profiles) | Model id handed to each agent CLI, keyed by harness `agent`. It only selects the CLI's request format and prompt template; OpenCode gets a placeholder key for its provider (`OPENROUTER_API_KEY=sk-none`). The model that answers is always `inspect_model` (see [architecture.md](architecture.md#model-calls-the-bridge)), except with `access: subscription`, where `claude_code` is the model Claude Code asks Anthropic for. The OpenCode id must be in OpenCode's bundled catalog (the harnesses turn off fetching models); an unknown id runs as a custom model with no known limits (context 0, output 0, reasoning off). A bridge profile without an `opencode` entry gets the default (`DEFAULT_AGENT_MODELS` in [config.py](../src/agenteval/config.py)): a catalog model with OpenRouter's OpenAI-style chat format and OpenCode's generic prompt. Set the entry only for a model OpenCode should treat differently, e.g. `anthropic/claude-sonnet-4-5` (Anthropic's format) in the Claude profiles, or the model's own catalog id. |
 
 ### Example: the internal OpenAI-compatible gateway instead of OpenRouter
 
@@ -50,15 +70,15 @@ inspect_model: openai-api/gateway/gpt-oss-120b   # the part after "gateway/" is 
 required_env: [GATEWAY_API_KEY, GATEWAY_BASE_URL]
 connection:
   proxy: direct   # reached over the VPN; the gateway drops calls sent through a proxy
-agent_models:
-  # Request format / prompt template only; the bridge intercepts the call, so nothing
-  # goes to OpenRouter. It must be an id OpenCode knows (its bundled catalog: the harness
-  # disables fetching models). Check it with a one-sample run.
-  opencode: openrouter/openai/gpt-oss-120b
 pricing:   # internal rates in USD per 1M tokens; omit to report cost as "unknown"
   input: 0
   output: 0
 ```
+
+Without `agent_models`, OpenCode runs this model with the default OpenAI-style id. To have
+OpenCode treat it as gpt-oss (its limits and prompt), add `agent_models: {opencode:
+openrouter/openai/gpt-oss-120b}`, after a one-sample run confirms that OpenCode's catalog has
+that id. Nothing goes to OpenRouter either way: the bridge intercepts the call.
 
 ```sh
 export GATEWAY_BASE_URL=https://<gateway-host>/v1
@@ -88,7 +108,7 @@ provider: `anthropic/<model>` with `ANTHROPIC_API_KEY` (`claude-sonnet-api`), or
 | `agent` | required | Agent CLI: `opencode` or `claude_code` (see [below](#claude-code-harnesses-and-subagents)). |
 | `version` | `stable` | Pinned release (e.g. `"1.19.3"`), `stable` or `latest`. Pin it for comparable results. |
 | `agent_model` | none | Overrides the model profile's `agent_models` entry for this harness. |
-| `inner_sandbox.type` | `none` | `none`: plain `exec`. `bwrap`: bubblewrap profile (below). |
+| `inner_sandbox.type` | `none` | `none`: plain `exec` (the other `inner_sandbox` keys must then stay unset). `bwrap`: bubblewrap profile (below). |
 | `inner_sandbox.hide_paths` | `[]` | Paths replaced by an empty tmpfs (directories) or `/dev/null` (files). `~` = the agent's home. Inspect's sandbox-tools dir and `/var/lib/agenteval` are always hidden too, and `/run` is always a private tmpfs. |
 | `inner_sandbox.extra_writable_paths` | `[]` | Writable in addition to the workspace and the harness state dirs (`~/.local/share/opencode`, `~/.local/state/opencode`, `~/.cache/opencode`, `~/.config/opencode`, `~/.claude`). |
 | `inner_sandbox.network` | `proxy-only` | `proxy-only`: own network namespace, only the model bridge is reachable (through a read-only socket dir). `host`: share the environment's network; the resolver file below `/run` is re-exposed read-only so DNS works. |
@@ -122,6 +142,28 @@ variables and `npm_config_offline`: they stop OpenCode from updating itself, fet
 lists, loading plugins or installing its plugin package from npm. Otherwise the harness's own
 network traffic would be counted as an agent egress attempt.
 
+### Variants with `extends`
+
+Each shipped `*-bwrap` harness is its `*-none` twin plus the bubblewrap inner sandbox:
+
+```yaml
+# config/harnesses/opencode-bwrap.yaml
+extends: opencode-none
+description: OpenCode inside a bubblewrap sandbox (...)
+inner_sandbox:
+  type: bwrap
+  network: proxy-only
+  clear_env: true
+  hide_paths: [~/.ssh, ~/.aws, ~/.config/gcloud, ~/.netrc, /etc/agenteval/secrets, /root]
+```
+
+`agent`, `version`, `env` and `subagents` come from `opencode-none`; the `inner_sandbox`
+mapping is merged into the twin's `{type: none}`. A list is replaced, not appended to: to
+hide one more path, repeat the whole `hide_paths` list. Change shared settings (a new
+`version`, the subagents) in the `-none` file and both variants follow. A new variant, for
+example `opencode-bwrap-hostnet`, can extend `opencode-bwrap` and set only
+`inner_sandbox: {network: host}`.
+
 The agent should run as an unprivileged user. Run as root, bubblewrap is a weaker boundary and
 `sandbox-exec` prints a warning (see [Known limitations](security-tests.md#known-limitations)).
 
@@ -144,10 +186,10 @@ dir. The model axis is the **orchestrator**: every Claude Code call goes to the 
 | `instructions` | a short delegation note | Appended to the orchestrator's system prompt. |
 
 ```yaml
-# config/harnesses/claude-code-opencode-bwrap.yaml (shortened)
+# config/harnesses/claude-code-opencode-none.yaml (shortened)
 agent: claude_code
 version: "2.1.292"
-inner_sandbox: {type: bwrap, network: proxy-only, clear_env: true}
+inner_sandbox: {type: none}
 subagents:
   runner: opencode
   model: gateway-qwen
@@ -203,7 +245,7 @@ Mirror [harnesses/claude_code.py](../src/agenteval/harnesses/claude_code.py):
 | Field | Default | Meaning |
 | --- | --- | --- |
 | `description` | `""` | |
-| `provider` | required | `tart` or `docker`. |
+| `provider` | required | `tart`, `docker` or `sbx`. Only this provider's settings block may be set. |
 | `agent_user` | `agent` | Unprivileged user the agent runs as (`provision.sh` refuses `root`). Passed to `provision.sh` when the image is built (Docker build argument; over SSH for Tart). Rebuild the image after changing it (`--force` for Tart). |
 | `workspace` | `/workspace` | The agent's working directory, created by `provision.sh` like `agent_user`. The injection suite requires `/workspace`. |
 | `egress` | `deny` | Outbound network for the agent user. Docker: `network_mode: none`. Tart: nftables rule on the agent's uid. `allow`: no restriction. |
@@ -214,7 +256,7 @@ Mirror [harnesses/claude_code.py](../src/agenteval/harnesses/claude_code.py):
 | `probe.host_ports` | `[22, 5000, 7000]` | Gateway ports tried by `net.host_gateway` (5000/7000: macOS AirPlay receiver). |
 | `tart.base_image` | `ghcr.io/cirruslabs/ubuntu:24.04` | Public image the build starts from. |
 | `tart.image` | `agenteval-ubuntu-24.04` | Local provisioned VM, cloned for every sample. |
-| `tart.cpu`, `tart.memory_mb` | `4`, `4096` | Per VM. |
+| `tart.cpus`, `tart.memory` | `4`, `4g` | Per VM (`tart set --cpu`, and `--memory` in MiB). |
 | `tart.network` | `nat` | `softnet` isolates the VM from the host but needs the privileged softnet helper (see [setup.md](setup.md#troubleshooting)). |
 | `tart.ssh_user`, `tart.ssh_key` | `admin`, `~/.agenteval/ssh/id_ed25519` | Login used for setup and scoring (passwordless sudo). |
 | `tart.bootstrap_password` | `admin` | The base image's public default password. Used once during the build; never logged. |
@@ -224,8 +266,19 @@ Mirror [harnesses/claude_code.py](../src/agenteval/harnesses/claude_code.py):
 | `docker.runtime` | none | OCI runtime, e.g. `runsc` (gVisor) or `kata-runtime`. |
 | `docker.security_opt` | `[]` (stock Docker) | `security_opt` for every container of this environment. |
 | `docker.bwrap_security_opt` | `seccomp=unconfined`, `apparmor=unconfined`, `systempaths=unconfined` | Added only for cells whose harness uses the bwrap inner sandbox: the relaxations bubblewrap needs inside a container. They weaken it (trade-off explained in [setup.md](setup.md#troubleshooting)). |
-| `docker.memory`, `docker.cpus` | `4g`, none | Container limits. |
+| `docker.cpus`, `docker.memory` | none, `4g` | Container limits (`cpus` may be fractional, e.g. `1.5`); `null` = no limit. |
 | `docker.pids_limit` | `4096` | Process limit per container (at least 64; `null` = none), so one sample cannot exhaust the Docker VM. |
+| `sbx.image` | `agenteval/ubuntu-24.04:latest` | Docker image built from `provision/Dockerfile` (the one `docker-ubuntu` uses). |
+| `sbx.template` | `agenteval/ubuntu-24.04-sbx:latest` | What sandboxes start from: `image` plus full root capabilities, loaded with `sbx template load`. |
+| `sbx.cpus`, `sbx.memory` | none, `4g` | Per microVM (`null` cpus = sbx's default, every host CPU). |
+| `sbx.create_timeout` | `300` | Seconds `sbx create` may take. |
+
+Every provider sizes its sandbox with the same two keys in its own block: `cpus` (a whole
+number; Docker also takes fractions) and `memory`, a size string with a binary unit (`4g`,
+`512m`, `4096mb`) of at least `512m`. Images stay in the provider block too, because each
+provider means something different by them (Tart: `base_image` and the built `image`; sbx:
+`image` and the `template` made from it).
+
 
 Build each new environment's image with `uv run agenteval env build <name>`. Environments that
 share an image name share the build. Docker compose files are generated per cell under
@@ -281,7 +334,8 @@ template; both test against fake CLIs. File transfer and timeouts through `exec`
 2. Import it in [_registry.py](../src/agenteval/_registry.py), so the `inspect_ai` entry point
    registers it.
 3. In [config.py](../src/agenteval/config.py), add the name to `EnvironmentProfile.provider`, a
-   settings model (like `TartSettings`) and its default in `_provider_settings`.
+   settings model (like `TartSettings`), and its default and the mismatch check in
+   `_provider_settings`. Regenerate `config/schema/` (see above).
 4. In [environments/\_\_init\_\_.py](../src/agenteval/environments/__init__.py), map the provider
    to a `SandboxEnvironmentSpec` in `sandbox_spec`. It also receives the cell's
    `inner_sandbox` type, for providers whose confinement must depend on it (as Docker's does),
@@ -342,10 +396,10 @@ what every task shares: name, model, sandbox, limits, epochs and metadata.
 2. Register it in `SUITES` in [suites/\_\_init\_\_.py](../src/agenteval/suites/__init__.py), and
    add the name to `SuiteName` in [config.py](../src/agenteval/config.py). The CLI's `--suite`
    choices come from `SuiteName`.
-3. Report. [report/data.py](../src/agenteval/report/data.py) recognises suites by scorer name
+3. Report. [report/scores.py](../src/agenteval/report/scores.py) recognises suites by scorer name
    (`containment_scorer`, `tests_pass`, `ipi_scorer`, `boundary_monitor`, `generated_vulns`). A new suite still
    appears in the Overview, Economics, Boundary monitor (when attached) and the per-sample
-   drill-down. A dedicated section, or counting samples as resolved, needs a view in `data.py`
+   drill-down. A dedicated section, or counting samples as resolved, needs a view in [report/views.py](../src/agenteval/report/views.py)
    and the template.
 
 ### Adding cases (capability, containment, monitor, injection)

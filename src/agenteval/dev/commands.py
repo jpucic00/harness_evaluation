@@ -27,7 +27,7 @@ from agenteval.config import (
     missing_env,
 )
 from agenteval.dev import repo, userconfig
-from agenteval.dev.review import DevIO, ReviewItem, ReviewOutcome, review
+from agenteval.dev.review import DevIO, ReviewItem, ReviewOutcome, review, visible_text
 from agenteval.dev.session import (
     DevSession,
     Mount,
@@ -85,6 +85,30 @@ def _profiles(
     return h, e, m, sub
 
 
+def _check_limits(
+    models: list[ModelProfile], cost_limit: float | None, token_limit: int | None
+) -> None:
+    """Refuse spend limits that could not be enforced."""
+    if cost_limit is not None and cost_limit <= 0:
+        raise ConfigError("--cost-limit must be more than 0")
+    if token_limit is not None and token_limit <= 0:
+        raise ConfigError("--token-limit must be more than 0")
+    if cost_limit is None and token_limit is None:
+        return
+    for m in models:
+        if m.access == "subscription":
+            raise ConfigError(
+                f"model '{m.name}' uses a Claude subscription, whose calls bypass Inspect: "
+                "--cost-limit and --token-limit cannot apply to it"
+            )
+    unpriced = [m.name for m in models if m.pricing is None]
+    if cost_limit is not None and unpriced:
+        raise ConfigError(
+            f"--cost-limit needs a price for every model; no pricing in: {', '.join(unpriced)} "
+            "(add pricing to the profile, or use --token-limit)"
+        )
+
+
 def _git_identity(root: Path, git: bool) -> dict[str, str]:
     identity: dict[str, str] = {}
     for key in ("user.name", "user.email"):
@@ -131,6 +155,8 @@ def start_session(
     host_config: bool,
     io: DevIO,
     exec_script: str | None = None,
+    cost_limit: float | None = None,
+    token_limit: int | None = None,
 ) -> int:
     """Run one interactive session from ``cwd``; returns the process exit code."""
     checkout = constants.checkout_root()
@@ -138,6 +164,7 @@ def start_session(
     load_dotenv(checkout / ".env", override=False)
     profiles = load_profiles(config_dir)
     h, e, m, sub = _profiles(profiles, harness, environment, model, subagent_model)
+    _check_limits([p for p in (m, sub) if p is not None], cost_limit, token_limit)
     missing = missing_env([p for p in (m, sub) if p is not None])
     if missing:
         raise ConfigError(
@@ -224,6 +251,8 @@ def start_session(
         git_identity=_git_identity(info.root, info.git),
         host_term={k: os.environ[k] for k in TERM_VARS if os.environ.get(k)},
         exec_script=exec_script,
+        cost_limit=cost_limit,
+        token_limit=token_limit,
     )
 
     def on_export(exported: Exported) -> None:
@@ -247,7 +276,7 @@ def start_session(
             return [f"could not check the repo's git files for changes: {ex}"]
 
     for line in [*warnings, *(config_state.reports if config_state else [])]:
-        io.out(f"note: {line}")
+        io.out(f"note: {visible_text(line)}")
     if mount == "live":
         io.out(
             f"Live mount: the agent works directly on {info.root}. Files it changes there "
@@ -259,6 +288,13 @@ def start_session(
             f"Subscription: Claude Code calls Anthropic itself on your Claude plan, through "
             f"a proxy that allows only {', '.join(SUBSCRIPTION_HOSTS)}. These calls are not "
             "in the session log. Your token is in the environment, where the agent can read it."
+        )
+    caps = [f"${cost_limit:g}"] if cost_limit is not None else []
+    caps += [f"{token_limit:,} output tokens"] if token_limit is not None else []
+    if caps:
+        io.out(
+            f"Spend limit for this session's model calls: {' or '.join(caps)}; "
+            "reaching it stops the CLI."
         )
     io.out(
         f"Starting {e.name} with {h.name} and {m.name} (session {session_id}). "
@@ -400,9 +436,9 @@ def _failed(
     save_session(session, sdir)
     if session.mount == "copy" and session.repo.git:
         repo.cleanup_refs(session, keep_heads=True)  # fetched agent commits stay
-    io.out(f"The session failed: {error}")
+    io.out(f"The session failed: {visible_text(error)}")
     for note in notes or []:
-        io.out(f"note: {note}")
+        io.out(f"note: {visible_text(note)}")
     io.out(f"Session record: {sdir}  log: {session.log_dir}")
     return 1
 

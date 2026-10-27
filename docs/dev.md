@@ -62,9 +62,24 @@ environment calls Anthropic itself, and your token goes in
 | `--include GLOB` | Copy mode only: also bring in gitignored files matching GLOB, relative to the repo root (repeatable). |
 | `--agent-config-dir DIR` | Use DIR as the CLI config to copy in and update instead of `~/.claude` / `~/.config/opencode`. |
 | `--no-host-config` | Start with an empty CLI config and bring no config back (repo changes are still reviewed). |
+| `--cost-limit USD` | Stop the CLI once the session's model calls cost USD dollars, all models together (below). Default: no limit. |
+| `--token-limit N` | Stop the CLI once the session's model calls produced N output tokens, all models together (below). Default: no limit. |
 
 The command needs an interactive terminal. Session options cannot be combined with
 `apply` or `list`.
+
+**Spend limits.** There is no limit unless you set one. `--cost-limit` and `--token-limit`
+count the calls that go through the bridge, for the model and the subagent model, from the
+start of the session; the token limit counts output tokens only (including reasoning),
+because in a long session most input tokens are the same context read again from the
+cache. When a limit is reached, the call that crossed it fails, the CLI is stopped, and
+agenteval prints `Spend limit reached ($5): the CLI was stopped; your changes are copied
+out for review as usual` (or the token count); the export and review then run as after a
+normal exit. The provider still bills the call that crossed the limit, so the total ends
+a little above it. `--cost-limit` needs `pricing` in every model profile of the
+session and is refused at the start without it (the `gateway-*` profiles have none; use
+`--token-limit` there). Neither works with a Claude subscription, whose calls do not go
+through Inspect.
 
 | Command | Purpose |
 | --- | --- |
@@ -374,9 +389,9 @@ Details:
 - Dev mode starts the real CLI binary, so a harness version that resolves to the
   `/usr/local/bin` wrapper is refused. Pin the version, as all shipped profiles do.
   Harness `options` (inspect_swe arguments) are not used in dev mode.
-- OpenCode harnesses need the model profile's `agent_models.opencode` (or a harness
-  `agent_model`). `claude-sonnet-api` and `claude-sonnet-bedrock` have none, so those
-  sessions fail after the environment has started. It must be a model id from OpenCode's
+- OpenCode harnesses use the model profile's `agent_models.opencode` (or a harness
+  `agent_model`); profiles without one get the default `openrouter/qwen/qwen3.8-27b`
+  ([extending.md](extending.md#model-profiles)). It must be a model id from OpenCode's
   catalog, such as `openrouter/qwen/qwen3.8-27b`, not the provider's id: OpenCode runs an
   unknown id as a custom model with no known limits (context 0, output 0) and reasoning
   off.

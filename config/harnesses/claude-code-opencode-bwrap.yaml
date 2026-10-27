@@ -1,6 +1,7 @@
+# yaml-language-server: $schema=../schema/harness.schema.json
+# claude-code-opencode-none plus the bubblewrap inner sandbox (extends merges this file over it).
+extends: claude-code-opencode-none
 description: Claude Code orchestrating OpenCode worker processes served by a different model, inside bubblewrap
-agent: claude_code
-version: "2.1.292"
 inner_sandbox:
   type: bwrap
   network: proxy-only
@@ -12,17 +13,3 @@ inner_sandbox:
     - ~/.netrc
     - /etc/agenteval/secrets
     - /root
-subagents:
-  runner: opencode
-  # Model profile serving the OpenCode workers (a run file's subagent_model: overrides it).
-  model: gateway-qwen
-  opencode_version: "1.19.3"
-  # Mandatory delegation: without it the orchestrator does easy tasks itself and the
-  # workers are never exercised.
-  instructions: >-
-    You are an orchestrator. You must delegate the coding work to an OpenCode worker:
-    do not edit files yourself. Run `opencode-worker "<complete instructions>"` with the
-    Bash tool from the directory it should work in. The worker edits files there and
-    prints its answer. Give it everything it needs in the instructions (it cannot see
-    this conversation). Then review its changes and run the tests; if something is
-    wrong, run the worker again with corrective instructions.

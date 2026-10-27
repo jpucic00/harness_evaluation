@@ -29,7 +29,7 @@ from anyio.abc import Process
 from inspect_ai._util.error import PrerequisiteError
 from inspect_ai.util import ExecResult, SandboxUnavailableError, subprocess
 
-from agenteval.config import TartSettings
+from agenteval.config import TartSettings, size_mb
 
 from . import ssh
 from .ssh import (
@@ -217,10 +217,10 @@ class TartVM:
         self._cloned = True  # the name is ours: delete even a clone interrupted midway
         await run_tart(["clone", source, self.name], timeout=timeout, capture=capture)
 
-    async def configure(self, *, cpu: int, memory_mb: int) -> None:
+    async def configure(self, *, cpus: int, memory_mb: int) -> None:
         # A fresh MAC per clone: two VMs sharing one would share a DHCP lease (and IP).
         await run_tart(
-            ["set", self.name, "--cpu", str(cpu), "--memory", str(memory_mb), "--random-mac"]
+            ["set", self.name, "--cpu", str(cpus), "--memory", str(memory_mb), "--random-mac"]
         )
 
     async def start(self, *, network: str, dirs: Sequence[str] = ()) -> None:
@@ -537,7 +537,7 @@ async def build_image(
     try:
         _progress(f"Cloning {settings.base_image} -> {vm.name} (pulls the image on first use)")
         await vm.clone(settings.base_image, timeout=None, capture=False)
-        await vm.configure(cpu=settings.cpu, memory_mb=settings.memory_mb)
+        await vm.configure(cpus=settings.cpus, memory_mb=size_mb(settings.memory))
         _progress(f"Booting {vm.name}")
         await vm.start(network=settings.network)
         ip = await vm.wait_ip(settings.boot_timeout)

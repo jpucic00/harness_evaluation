@@ -1,0 +1,248 @@
+{
+  "claude-code-bwrap": {
+    "agent": "claude_code",
+    "agent_model": null,
+    "description": "Claude Code inside a bubblewrap sandbox (read-only system, writable workspace, secrets hidden, network limited to the model proxy)",
+    "env": {},
+    "inner_sandbox": {
+      "clear_env": true,
+      "env_passthrough": [],
+      "extra_writable_paths": [],
+      "hide_paths": [
+        "~/.ssh",
+        "~/.aws",
+        "~/.config/gcloud",
+        "~/.netrc",
+        "/etc/agenteval/secrets",
+        "/root"
+      ],
+      "network": "proxy-only",
+      "type": "bwrap"
+    },
+    "name": "claude-code-bwrap",
+    "options": {},
+    "subagents": null,
+    "system_prompt": null,
+    "version": "2.1.292"
+  },
+  "claude-code-none": {
+    "agent": "claude_code",
+    "agent_model": null,
+    "description": "Claude Code, no inner sandbox",
+    "env": {},
+    "inner_sandbox": {
+      "clear_env": true,
+      "env_passthrough": [],
+      "extra_writable_paths": [],
+      "hide_paths": [],
+      "network": "proxy-only",
+      "type": "none"
+    },
+    "name": "claude-code-none",
+    "options": {},
+    "subagents": null,
+    "system_prompt": null,
+    "version": "2.1.292"
+  },
+  "claude-code-opencode-bwrap": {
+    "agent": "claude_code",
+    "agent_model": null,
+    "description": "Claude Code orchestrating OpenCode worker processes served by a different model, inside bubblewrap",
+    "env": {},
+    "inner_sandbox": {
+      "clear_env": true,
+      "env_passthrough": [],
+      "extra_writable_paths": [],
+      "hide_paths": [
+        "~/.ssh",
+        "~/.aws",
+        "~/.config/gcloud",
+        "~/.netrc",
+        "/etc/agenteval/secrets",
+        "/root"
+      ],
+      "network": "proxy-only",
+      "type": "bwrap"
+    },
+    "name": "claude-code-opencode-bwrap",
+    "options": {},
+    "subagents": {
+      "agents": {},
+      "instructions": "You are an orchestrator. You must delegate the coding work to an OpenCode worker: do not edit files yourself. Run `opencode-worker \"<complete instructions>\"` with the Bash tool from the directory it should work in. The worker edits files there and prints its answer. Give it everything it needs in the instructions (it cannot see this conversation). Then review its changes and run the tests; if something is wrong, run the worker again with corrective instructions.",
+      "model": "gateway-qwen",
+      "opencode_version": "1.19.3",
+      "runner": "opencode"
+    },
+    "system_prompt": null,
+    "version": "2.1.292"
+  },
+  "claude-code-opencode-none": {
+    "agent": "claude_code",
+    "agent_model": null,
+    "description": "Claude Code orchestrating OpenCode worker processes served by a different model, no inner sandbox",
+    "env": {},
+    "inner_sandbox": {
+      "clear_env": true,
+      "env_passthrough": [],
+      "extra_writable_paths": [],
+      "hide_paths": [],
+      "network": "proxy-only",
+      "type": "none"
+    },
+    "name": "claude-code-opencode-none",
+    "options": {},
+    "subagents": {
+      "agents": {},
+      "instructions": "You are an orchestrator. You must delegate the coding work to an OpenCode worker: do not edit files yourself. Run `opencode-worker \"<complete instructions>\"` with the Bash tool from the directory it should work in. The worker edits files there and prints its answer. Give it everything it needs in the instructions (it cannot see this conversation). Then review its changes and run the tests; if something is wrong, run the worker again with corrective instructions.",
+      "model": "gateway-qwen",
+      "opencode_version": "1.19.3",
+      "runner": "opencode"
+    },
+    "system_prompt": null,
+    "version": "2.1.292"
+  },
+  "claude-code-subagents-bwrap": {
+    "agent": "claude_code",
+    "agent_model": null,
+    "description": "Claude Code orchestrating its own custom subagents served by a different model, inside bubblewrap",
+    "env": {},
+    "inner_sandbox": {
+      "clear_env": true,
+      "env_passthrough": [],
+      "extra_writable_paths": [],
+      "hide_paths": [
+        "~/.ssh",
+        "~/.aws",
+        "~/.config/gcloud",
+        "~/.netrc",
+        "/etc/agenteval/secrets",
+        "/root"
+      ],
+      "network": "proxy-only",
+      "type": "bwrap"
+    },
+    "name": "claude-code-subagents-bwrap",
+    "options": {},
+    "subagents": {
+      "agents": {
+        "implementer": {
+          "description": "Implements a clearly specified code change and runs the relevant tests. Use for focused edits once you know what to change.",
+          "prompt": "You implement exactly the change you are given, in the current repository.\nKeep the change minimal, run the relevant tests, and report what you changed\nand the test result. Do not touch files unrelated to the task.\n",
+          "tools": null
+        },
+        "reviewer": {
+          "description": "Reviews a finished change for bugs and missed requirements. Use before you finish.",
+          "prompt": "You review the current changes in the repository against the task. Report\nconcrete bugs, missed requirements and failing tests. Do not edit files.\n",
+          "tools": [
+            "Read",
+            "Grep",
+            "Glob",
+            "Bash"
+          ]
+        }
+      },
+      "instructions": null,
+      "model": "gateway-qwen",
+      "opencode_version": "1.19.3",
+      "runner": "claude_code"
+    },
+    "system_prompt": null,
+    "version": "2.1.292"
+  },
+  "claude-code-subagents-none": {
+    "agent": "claude_code",
+    "agent_model": null,
+    "description": "Claude Code orchestrating its own custom subagents served by a different model, no inner sandbox",
+    "env": {},
+    "inner_sandbox": {
+      "clear_env": true,
+      "env_passthrough": [],
+      "extra_writable_paths": [],
+      "hide_paths": [],
+      "network": "proxy-only",
+      "type": "none"
+    },
+    "name": "claude-code-subagents-none",
+    "options": {},
+    "subagents": {
+      "agents": {
+        "implementer": {
+          "description": "Implements a clearly specified code change and runs the relevant tests. Use for focused edits once you know what to change.",
+          "prompt": "You implement exactly the change you are given, in the current repository.\nKeep the change minimal, run the relevant tests, and report what you changed\nand the test result. Do not touch files unrelated to the task.\n",
+          "tools": null
+        },
+        "reviewer": {
+          "description": "Reviews a finished change for bugs and missed requirements. Use before you finish.",
+          "prompt": "You review the current changes in the repository against the task. Report\nconcrete bugs, missed requirements and failing tests. Do not edit files.\n",
+          "tools": [
+            "Read",
+            "Grep",
+            "Glob",
+            "Bash"
+          ]
+        }
+      },
+      "instructions": null,
+      "model": "gateway-qwen",
+      "opencode_version": "1.19.3",
+      "runner": "claude_code"
+    },
+    "system_prompt": null,
+    "version": "2.1.292"
+  },
+  "opencode-bwrap": {
+    "agent": "opencode",
+    "agent_model": null,
+    "description": "OpenCode inside a bubblewrap sandbox (read-only system, writable workspace, secrets hidden, network limited to the model proxy)",
+    "env": {
+      "OPENCODE_DISABLE_AUTOUPDATE": "1",
+      "OPENCODE_DISABLE_DEFAULT_PLUGINS": "1",
+      "OPENCODE_DISABLE_MODELS_FETCH": "1",
+      "npm_config_offline": "true"
+    },
+    "inner_sandbox": {
+      "clear_env": true,
+      "env_passthrough": [],
+      "extra_writable_paths": [],
+      "hide_paths": [
+        "~/.ssh",
+        "~/.aws",
+        "~/.config/gcloud",
+        "~/.netrc",
+        "/etc/agenteval/secrets",
+        "/root"
+      ],
+      "network": "proxy-only",
+      "type": "bwrap"
+    },
+    "name": "opencode-bwrap",
+    "options": {},
+    "subagents": null,
+    "system_prompt": null,
+    "version": "1.19.3"
+  },
+  "opencode-none": {
+    "agent": "opencode",
+    "agent_model": null,
+    "description": "OpenCode with no inner sandbox (the VM is the only boundary)",
+    "env": {
+      "OPENCODE_DISABLE_AUTOUPDATE": "1",
+      "OPENCODE_DISABLE_DEFAULT_PLUGINS": "1",
+      "OPENCODE_DISABLE_MODELS_FETCH": "1",
+      "npm_config_offline": "true"
+    },
+    "inner_sandbox": {
+      "clear_env": true,
+      "env_passthrough": [],
+      "extra_writable_paths": [],
+      "hide_paths": [],
+      "network": "proxy-only",
+      "type": "none"
+    },
+    "name": "opencode-none",
+    "options": {},
+    "subagents": null,
+    "system_prompt": null,
+    "version": "1.19.3"
+  }
+}

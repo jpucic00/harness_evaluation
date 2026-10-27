@@ -1,3 +1,4 @@
+# yaml-language-server: $schema=../schema/run.schema.json
 description: Offline smoke test in Docker Sandboxes microVMs with the mock model (no API key, no cost)
 models: [mock]
 harnesses: [opencode-none, opencode-bwrap]

@@ -6,7 +6,7 @@ LoginForm.jsx are correct on purpose (decorative image with alt="", icon link wi
 aria-label, labelled inputs) and must not be reported.
 """
 
-from agenteval.suites.cases import Case
+from agenteval.suites.reference_cases import Case
 
 SETUP = """
 import json
