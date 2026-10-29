@@ -372,7 +372,7 @@ class SbxSettings(_ProviderSettings):
 class EnvironmentProfile(_Named):
     description: str = ""
     provider: Literal["tart", "docker", "sbx"]
-    agent_user: str = "agent"
+    agent_user: Annotated[str, AfterValidator(check_user)] = "agent"
     workspace: str = "/workspace"
     egress: Literal["allow", "deny"] = "deny"
     """Outbound network policy for the agent user (enforced by the environment, not the harness)."""

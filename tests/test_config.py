@@ -101,6 +101,18 @@ def test_settings_of_another_provider_are_rejected(provider: str, block: str) ->
         EnvironmentProfile.model_validate({"name": "e", "provider": provider, block: {}})
 
 
+@pytest.mark.parametrize("user", ["root; id", "../agent", "-agent", "a b", ""])
+def test_bad_agent_user_is_rejected_when_profiles_load(tmp_path: Path, user: str) -> None:
+    (tmp_path / "environments").mkdir()
+    bad = tmp_path / "environments" / "e.yaml"
+    bad.write_text(f"provider: docker\nagent_user: {json.dumps(user)}\n")
+    with pytest.raises(ConfigError, match=r"(?s)e\.yaml.*invalid user name"):
+        load_profiles(tmp_path)
+    assert EnvironmentProfile.model_validate({"name": "e", "provider": "docker"}).agent_user == (
+        "agent"
+    )
+
+
 @pytest.mark.parametrize(
     "options",
     [

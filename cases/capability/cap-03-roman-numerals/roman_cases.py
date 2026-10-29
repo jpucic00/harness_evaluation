@@ -1,6 +1,6 @@
 """Reference cases for cap-03-roman-numerals (the visible tests plus hidden ones)."""
 
-from agenteval.suites.reference_cases import Case, Raises
+from agenteval.scorers.reference_cases import Case, Raises
 
 SETUP = "from roman import from_roman, to_roman"
 

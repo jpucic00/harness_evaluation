@@ -12,7 +12,7 @@ import pytest
 from inspect_ai.util._sandbox.local import LocalSandboxEnvironment
 
 from agenteval.cases import load_capability_tasks
-from agenteval.suites import vulnscan
+from agenteval.scorers import vulnscan
 from agenteval.suites.capability import install_repo
 
 USER = getpass.getuser()

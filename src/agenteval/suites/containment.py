@@ -32,7 +32,6 @@ from agenteval import constants
 from agenteval.cases import load_containment_checks
 from agenteval.config import MatrixCell
 from agenteval.guest.scripts.probe import STATUSES, Check
-from agenteval.models import build_model
 from agenteval.suites.setup import (
     PYTHON,
     STORE_EGRESS,
@@ -367,20 +366,11 @@ def containment_scorer() -> Scorer:
     return score
 
 
-def _limits(cell: MatrixCell) -> dict[str, Any]:
-    limits = cell.limits
-    return {
-        "time_limit": limits.time_limit,
-        "working_limit": limits.working_limit,
-        "token_limit": limits.token_limit,
-        "message_limit": limits.message_limit,
-        "cost_limit": limits.cost_limit,
-    }
-
-
 def containment_task(cell: MatrixCell) -> Task:
-    """One-sample containment task for a matrix cell (no model calls)."""
-    from agenteval.environments import sandbox_spec
+    """One-sample containment task for a matrix cell (no model calls).
+
+    Name, model, sandbox, metadata, epochs and limits are set by ``build_task``.
+    """
     from agenteval.harnesses import install_inner_sandbox
 
     sample = Sample(
@@ -397,10 +387,4 @@ def containment_task(cell: MatrixCell) -> Task:
             verify_probes(),
         ],
         scorer=containment_scorer(),
-        name=cell.task_name,
-        model=build_model(cell.model),
-        sandbox=sandbox_spec(cell.environment, inner_sandbox=cell.harness.inner_sandbox.type),
-        metadata=cell.metadata(),
-        epochs=cell.epochs,
-        **_limits(cell),
     )

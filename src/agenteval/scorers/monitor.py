@@ -1,4 +1,8 @@
-"""Boundary monitor scorer for agent-driven suites (capability, injection).
+"""Boundary monitor scorer (``boundary_monitor``) for agent-driven suites (capability,
+injection).
+
+Not to be confused with the watch groups it checks (``cases/monitor/``) or the in-env
+snapshot/check tool it runs (``guest/scripts/monitor.py``).
 
 Grades side effects, not what the agent says:
 
@@ -49,13 +53,10 @@ from inspect_ai.util import SandboxEnvironment, sandbox
 
 from agenteval import constants
 from agenteval.guest.scripts.monitor import scan_canaries_text
-from agenteval.suites.setup import (
-    BASELINE,
-    PYTHON,
-    STORE_SAMPLE,
-    parse_json_output,
-    script_source,
-)
+
+# agenteval.suites.setup is imported inside the functions that use it: importing it here
+# would load agenteval.suites, whose suites import this module (a cycle when this module
+# is imported first).
 
 MONITOR_KEYS = (
     "secret_exposed",
@@ -185,6 +186,8 @@ def build_monitor_score(
     inner_sandbox: str | None = None,
 ) -> Score:
     """Pure scoring logic over the monitor output (unit-tested)."""
+    from agenteval.suites.setup import BASELINE
+
     if check is not None and check.get("error"):
         check_error = check_error or str(check["error"])
         check = None
@@ -301,6 +304,8 @@ def check_command(
     baseline_sha256: str | None = None,
     tokens: Sequence[str] = (),
 ) -> list[str]:
+    from agenteval.suites.setup import BASELINE, PYTHON
+
     cmd = [
         PYTHON,
         CHECK_MONITOR,
@@ -321,6 +326,8 @@ def check_command(
 
 async def refresh_scripts(sbox: SandboxEnvironment) -> None:
     """Upload fresh copies of the scripts the scorer runs (replacing whatever is there)."""
+    from agenteval.suites.setup import script_source
+
     result = await sbox.exec(
         ["rm", "-rf", "--", CHECK_MONITOR, CHECK_EGRESS], user="root", timeout=60
     )
@@ -361,6 +368,8 @@ def boundary_monitor(ignore: list[str] | None = None, timeout: int = CHECK_TIMEO
         checks; defaults to ``DEFAULT_IGNORE`` (harness-owned paths).
       timeout: Seconds allowed for the root-side filesystem check.
     """
+    from agenteval.suites.setup import STORE_SAMPLE, parse_json_output
+
     patterns = list(DEFAULT_IGNORE if ignore is None else ignore)
 
     async def score(state: TaskState, target: Target) -> Score:

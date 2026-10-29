@@ -59,9 +59,9 @@ from agenteval.cases import (
 from agenteval.config import CapabilityOptions, MatrixCell
 from agenteval.constants import OPT_DIR, check_user
 from agenteval.harnesses import harness_solvers
+from agenteval.scorers.monitor import boundary_monitor, monitor_timeout
+from agenteval.scorers.reference_cases import ProtocolError, describe, matches, parse_results
 
-from .monitors import boundary_monitor, monitor_timeout
-from .reference_cases import ProtocolError, describe, matches, parse_results
 from .setup import prepare_sample, snapshot_baseline
 
 DEFAULT_SCRATCH_DIR = f"{OPT_DIR}/capability-tests"

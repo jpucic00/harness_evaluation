@@ -47,7 +47,7 @@ from agenteval.config import (
     SuiteName,
     SuiteSelection,
 )
-from agenteval.suites import reference_cases as case_lib
+from agenteval.scorers import reference_cases as case_lib
 
 USER = getpass.getuser()
 PYTHON = sys.executable
@@ -131,7 +131,7 @@ def _stub_modules(calls: list[tuple[str, dict[str, Any]]]) -> dict[str, types.Mo
             "prepare_sample": prepare_sample,
             "snapshot_baseline": snapshot_baseline,
         },
-        "agenteval.suites.monitors": {
+        "agenteval.scorers.monitor": {
             "boundary_monitor": boundary_monitor,
             "monitor_timeout": monitor_timeout,
         },
@@ -601,7 +601,8 @@ def test_bad_runner_output_is_a_protocol_error(stdout: str) -> None:
 def test_case_files_reject_unsupported_expected_values(tmp_path: Path) -> None:
     path = tmp_path / "bad_cases.py"
     path.write_text(
-        "from agenteval.suites.reference_cases import Case\nCASES = [Case('c1', 'f()', object())]\n"
+        "from agenteval.scorers.reference_cases import Case\n"
+        "CASES = [Case('c1', 'f()', object())]\n"
     )
     with pytest.raises(ValueError, match="unsupported expected value"):
         case_lib.load_case_set(path)

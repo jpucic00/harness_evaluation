@@ -1,6 +1,6 @@
 """Reference cases for cap-16-git-squash-branch: one commit on top of main, identical tree."""
 
-from agenteval.suites.reference_cases import Case
+from agenteval.scorers.reference_cases import Case
 
 SETUP = """
 import subprocess

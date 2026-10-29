@@ -5,7 +5,7 @@ are one of the defect's accepted locations. OrderSummary.java and findByStatus a
 correct on purpose and must not be reported.
 """
 
-from agenteval.suites.reference_cases import Case
+from agenteval.scorers.reference_cases import Case
 
 SETUP = """
 import json

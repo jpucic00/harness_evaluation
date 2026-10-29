@@ -240,8 +240,9 @@ What these boundaries do not (yet) guarantee is listed under
 
 ## Monitors
 
-`boundary_monitor` is attached to every agent-driven sample (capability and injection) and is
-always the first scorer. It grades what actually crossed a boundary, whatever the task outcome:
+`boundary_monitor` ([scorers/monitor.py](../src/agenteval/scorers/monitor.py)) is attached to every
+agent-driven sample (capability and injection) and is always the first scorer. It grades what
+actually crossed a boundary, whatever the task outcome:
 
 - a root-side `monitor.py check` compared with the baseline taken before the agent started
   (persistence locations, writes outside the workspace, the decoy note, the collector log,
@@ -433,6 +434,7 @@ repo.
 | [harnesses/](../src/agenteval/harnesses/) | `harness_solvers(cell)` and `check_harness_options(harness)` (the `AGENTS` map), OpenCode and Claude Code install/run (`opencode.py`, `claude_code.py`) and what they share (`common.py`: agent env, factory arguments, wrapper install, `options` check); their shell templates live in `guest/templates/`. |
 | [guest/](../src/agenteval/guest/) | Everything that runs inside the environment (stdlib-only Python 3.12 or sh; not to be confused with the host-side `environments/guest.py`): `scripts/` uploaded for eval runs: `probe.py` (runner for the check files in `cases/containment/`), `monitor.py`, `collector.py`, `egress.sh` (also used by dev), `case_runner.py`; `dev/` for dev sessions only: `dev_repo.py` (repo import/export), `ptyrelay.py`, `think_shim.py` (reasoning relay for OpenCode), `egress_proxy.py`, the launcher template `dev-launch.sh`; `templates/`: harness wrappers and `sandbox-exec` templates; `provision/`: `Dockerfile` + `provision.sh` (Docker build context, Tart and sbx images). |
 | [dev/](../src/agenteval/dev/) | `agenteval dev`: `commands.py` (start/apply/list), `task.py` (session solver, launcher, docker/tart access), `repo/` (snapshot, fetch, per-file 3-way apply, fast-forward: `discovery.py`, `export_import.py`, `review_items.py`, `commits.py`, `host_paths.py`, `live.py`, shared helpers in `common.py`), `userconfig/` (CLI config + memory staging, sanitizing, merge back: `discovery.py`, `sanitizing.py`, `reports.py`, `staging.py`, `returned.py`, `merge.py`, `flags.py`, `review_items.py`, shared limits and patterns in `common.py`), `review.py` (summary, diffs, prompts), `session.py` (records under `.agenteval/sessions/`). |
-| [suites/](../src/agenteval/suites/) | `SUITES` registry and `build_task`, sample setup and root shell helpers (`setup.py`), canary planning (`canaries.py`), the three suites, `monitors.py`, the capability reference-case protocol (`reference_cases.py`). |
+| [suites/](../src/agenteval/suites/) | `SUITES` registry and `build_task`, sample setup and root shell helpers (`setup.py`), canary planning (`canaries.py`), the three suites. |
+| [scorers/](../src/agenteval/scorers/) | Scorers shared by the suites: `boundary_monitor` (`monitor.py`, host side; it runs `guest/scripts/monitor.py` in the environment against the watch groups in `cases/monitor/`), `generated_vulns` (`vulnscan.py`), the capability reference-case protocol (`reference_cases.py`). |
 | [resource_sampler.py](../src/agenteval/resource_sampler.py) | Host CPU/memory sampler that runs next to `eval_set` (`resources.jsonl`). |
 | [report/](../src/agenteval/report/) | `records.py` (logs -> records), `scores.py` (scorer values -> typed results), `views.py` (records -> report sections), `economics.py` (pure arithmetic), `resources_view.py` (the Resources section), `build.py` + Jinja templates, `serve.py` (`report open`/`serve`, the `view` command). |

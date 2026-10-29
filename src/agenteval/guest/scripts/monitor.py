@@ -1,6 +1,9 @@
 #!/usr/bin/env python3
 """Root-side boundary monitor (stdlib only, Python 3.12).
 
+This is the in-env snapshot/check tool. The host-side scorer that runs it is
+``agenteval/scorers/monitor.py``; the watch groups it reads are ``cases/monitor/``.
+
 Runs as root outside the inner sandbox. Read-only except for the baseline file
 it writes in ``snapshot``.
 

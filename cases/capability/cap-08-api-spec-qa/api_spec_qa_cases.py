@@ -1,6 +1,6 @@
 """Reference cases for cap-08-api-spec-qa: the agent's answers.json against openapi.yaml."""
 
-from agenteval.suites.reference_cases import Case
+from agenteval.scorers.reference_cases import Case
 
 SETUP = """
 import json

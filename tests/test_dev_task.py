@@ -153,10 +153,13 @@ def test_opencode_header_timeout_covers_the_shim() -> None:
     assert task.HEADER_TIMEOUT_MS >= think_shim.UPSTREAM_TIMEOUT * 1000
 
 
-def test_opencode_launch_needs_cli_model() -> None:
-    spec = make_spec("opencode-none")
-    spec = make_spec("opencode-none", model=spec.model.model_copy(update={"agent_models": {}}))
-    with pytest.raises(ValueError, match="agent_models.opencode"):
+def test_opencode_launch_needs_provider_in_cli_model() -> None:
+    mock = PROFILES.models["mock"]
+    model = ModelProfile.model_validate(
+        mock.model_dump(exclude_unset=True) | {"agent_models": {"opencode": "qwen3"}}
+    )
+    spec = make_spec("opencode-none", model=model)
+    with pytest.raises(ValueError, match=r"'qwen3' .* not in provider/model form"):
         task.opencode_launch(spec, dep_dirs=[], home="/h")
 
 

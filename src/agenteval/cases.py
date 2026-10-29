@@ -34,7 +34,7 @@ from agenteval import constants
 from agenteval.guest.scripts.probe import Check, load_checks
 
 if TYPE_CHECKING:
-    from agenteval.suites.reference_cases import CaseSet
+    from agenteval.scorers.reference_cases import CaseSet
 
 # --------------------------------------------------------------------------- capability
 
@@ -80,7 +80,7 @@ class CapabilityTask(BaseModel):
     def case_set(self) -> CaseSet:
         """Reference cases and expected values (host-side only)."""
         # Imported here: importing agenteval.suites imports the suites, which import this module.
-        from agenteval.suites.reference_cases import find_cases_file, load_case_set
+        from agenteval.scorers.reference_cases import find_cases_file, load_case_set
 
         return load_case_set(find_cases_file(self.directory))
 

@@ -1,6 +1,6 @@
 """Reference cases for cap-02-word-frequency (the visible tests plus hidden ones)."""
 
-from agenteval.suites.reference_cases import Case
+from agenteval.scorers.reference_cases import Case
 
 SETUP = "from wordfreq import top_words, word_counts"
 

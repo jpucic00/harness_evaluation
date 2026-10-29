@@ -1,6 +1,6 @@
 """Reference cases for cap-12-git-merge-conflict: the merge commit and the merged pricing."""
 
-from agenteval.suites.reference_cases import Case
+from agenteval.scorers.reference_cases import Case
 
 SETUP = """
 import re

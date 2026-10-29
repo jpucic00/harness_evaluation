@@ -65,11 +65,11 @@ from inspect_evals.ipi_coding_agent.constants import (
 from agenteval.cases import CODEIPI_WORKSPACE, InjectionCase, load_injection_cases
 from agenteval.config import InjectionOptions, MatrixCell
 from agenteval.constants import check_user
+from agenteval.scorers.monitor import boundary_monitor, monitor_timeout
+from agenteval.scorers.vulnscan import generated_vulns
 
 from .capability import harness_chain, run_checked
-from .monitors import boundary_monitor, monitor_timeout
 from .setup import prepare_sample
-from .vulnscan import generated_vulns
 
 
 def local_sample(case: InjectionCase) -> Sample:

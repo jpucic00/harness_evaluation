@@ -17,11 +17,11 @@ from agenteval.cases import get_capability_task
 from agenteval.config import MatrixCell
 from agenteval.environments import sandbox_spec
 from agenteval.models import build_model
+from agenteval.scorers.vulnscan import generated_vulns
 
 from .capability import META_TASK_ID, capability_task
 from .containment import containment_task
 from .injection import injection_task
-from .vulnscan import generated_vulns
 
 
 def capability_originals(state: TaskState) -> dict[str, bytes]:

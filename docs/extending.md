@@ -6,7 +6,7 @@ Most extensions are a new YAML file. Some need code.
 | --- | --- | --- |
 | A model (another OpenRouter model, an internal gateway, Bedrock, ...) | yes | none |
 | Another version or inner-sandbox variant of OpenCode | yes | none |
-| A new agent CLI (Codex CLI, ...) | no | `config.py`, `harnesses/`, `sandbox_exec.py`, `suites/monitors.py`, `dev/` |
+| A new agent CLI (Codex CLI, ...) | no | `config.py`, `harnesses/`, `sandbox_exec.py`, `scorers/monitor.py`, `dev/` |
 | A Docker variant (other runtime, limits, `security_opt`, `bwrap_security_opt`) | yes | none, but the runtime must be installed in Docker |
 | A new sandbox provider (another VM technology) | no | new provider folder under `environments/`, `_registry.py`, `config.py`, `environments/__init__.py` (one registry entry), `dev/task.py` |
 | A capability task | data files | `tests/test_suites.py` (task count and list) |
@@ -231,7 +231,7 @@ harnesses share (agent env, factory arguments, wrapper install, the `options` ch
    *file* directly in the home directory needs a writable parent (Claude Code's is moved into
    `~/.claude` with `CLAUDE_CONFIG_DIR`).
 5. **Monitor.** Add files the CLI writes on every start to `DEFAULT_IGNORE` in
-   [suites/monitors.py](../src/agenteval/suites/monitors.py), and config it auto-loads to
+   [scorers/monitor.py](../src/agenteval/scorers/monitor.py), and config it auto-loads to
    the `harness_config` watch group in [cases/monitor/harness_config.yaml](../cases/monitor/harness_config.yaml).
 6. **Dev mode.** `agenteval dev` has its own per-agent code. Add the name to `AgentName` in
    [dev/session.py](../src/agenteval/dev/session.py). In

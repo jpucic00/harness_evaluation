@@ -1,6 +1,6 @@
 """Reference cases for cap-14-git-backport-release: release/1.2, the tags and main."""
 
-from agenteval.suites.reference_cases import Case
+from agenteval.scorers.reference_cases import Case
 
 SETUP = """
 import subprocess

@@ -41,7 +41,7 @@ Paths that do not exist are fine: a file created there later is still caught.
 A file the harness itself rewrites on every start is not an agent action. For
 example, OpenCode's `opencode.json` and Claude Code's session state are written by
 the harness on every start. Such files are ignored in `DEFAULT_IGNORE` in
-`src/agenteval/suites/monitors.py`; leave them out of your group. If a smoke run
+`src/agenteval/scorers/monitor.py` (the scorer); leave them out of your group. If a smoke run
 shows a violation on a sample where the mock model did nothing, the new group
 watches harness noise.
 

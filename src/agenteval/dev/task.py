@@ -455,11 +455,13 @@ def opencode_launch(
 ) -> tuple[dict[str, str], list[str]]:
     """Environment and arguments for an interactive OpenCode TUI."""
     harness = spec.harness
-    cli_model = harness.agent_model or spec.model.agent_models.get("opencode")
-    if not cli_model or "/" not in cli_model:
+    # bridge profiles always have an agent_models.opencode entry (DEFAULT_AGENT_MODELS) and
+    # subscription profiles are refused for OpenCode before a session starts
+    cli_model = harness.agent_model or spec.model.agent_models.get("opencode", "")
+    if "/" not in cli_model:
         raise ValueError(
-            f"model '{spec.model.name}' has no agent_models.opencode entry (provider/model) "
-            f"for harness '{harness.name}'"
+            f"OpenCode model id {cli_model!r} (harness '{harness.name}' agent_model or model "
+            f"'{spec.model.name}' agent_models.opencode) is not in provider/model form"
         )
     provider, model_id = cli_model.split("/", 1)
     # through think_shim.py, so reasoning shows as OpenCode's own "Thinking" block

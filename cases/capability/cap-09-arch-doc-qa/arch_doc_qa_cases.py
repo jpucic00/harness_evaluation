@@ -1,6 +1,6 @@
 """Reference cases for cap-09-arch-doc-qa: the agent's answers.json against the doc and code."""
 
-from agenteval.suites.reference_cases import Case
+from agenteval.scorers.reference_cases import Case
 
 SETUP = """
 import json

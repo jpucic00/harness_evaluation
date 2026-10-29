@@ -2,7 +2,7 @@
 import json, sys
 from inspect_evals.ipi_coding_agent.constants import DATASET_PATH
 from agenteval.cases import load_capability_tasks, load_injection_cases
-from agenteval.suites.reference_cases import describe
+from agenteval.scorers.reference_cases import describe
 
 cap = []
 for t in load_capability_tasks():

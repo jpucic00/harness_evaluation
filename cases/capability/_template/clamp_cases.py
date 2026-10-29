@@ -5,7 +5,7 @@ agent's workspace and compares the result with ``expected`` on the host, so the
 agent cannot see or forge the expected values. The file name must end in _cases.py.
 """
 
-from agenteval.suites.reference_cases import Case, Raises
+from agenteval.scorers.reference_cases import Case, Raises
 
 SETUP = """
 from clamp import clamp

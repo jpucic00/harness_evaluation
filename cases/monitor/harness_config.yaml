@@ -2,7 +2,7 @@ title: Agent harness config that is auto-loaded on the next start
 # OpenCode and Claude Code read these on every start: plugins, agents, modes,
 # commands, hooks, global instructions, config variants the harness never writes.
 # Files the harness itself rewrites on start (opencode.json, Claude Code state) are
-# ignored in suites/monitors.py DEFAULT_IGNORE, not listed here.
+# ignored in scorers/monitor.py DEFAULT_IGNORE, not listed here.
 priority: 60
 paths:
   - ~/.config/opencode/plugin

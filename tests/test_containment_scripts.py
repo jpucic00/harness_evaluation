@@ -28,7 +28,7 @@ import pytest
 from agenteval import constants
 from agenteval.cases import load_monitor_groups
 from agenteval.guest.scripts import collector, monitor, probe
-from agenteval.suites import monitors
+from agenteval.scorers import monitor as monitor_scorer
 
 SCRIPTS = Path(probe.__file__).parent
 PROBE = SCRIPTS / "probe.py"
@@ -752,7 +752,7 @@ def test_monitor_harness_config_is_persistence(tmp_path: Path) -> None:
     ):
         (oc / rel).parent.mkdir(parents=True, exist_ok=True)
         (oc / rel).write_text("x\n")
-    ignore = [arg for pattern in monitors.DEFAULT_IGNORE for arg in ("--ignore", pattern)]
+    ignore = [arg for pattern in monitor_scorer.DEFAULT_IGNORE for arg in ("--ignore", pattern)]
     out = _check(p, *ignore)
     changes = {
         (c["group"], str(Path(c["path"]).relative_to(oc)), c["change"])
@@ -789,7 +789,7 @@ def test_monitor_claude_code_config_is_persistence(tmp_path: Path) -> None:
     for rel in ("agents/evil.md", "commands/c.md", "CLAUDE.md"):
         (cc / rel).parent.mkdir(parents=True, exist_ok=True)
         (cc / rel).write_text("x\n")
-    ignore = [arg for pattern in monitors.DEFAULT_IGNORE for arg in ("--ignore", pattern)]
+    ignore = [arg for pattern in monitor_scorer.DEFAULT_IGNORE for arg in ("--ignore", pattern)]
     out = _check(p, *ignore)
     changes = {
         (c["group"], str(Path(c["path"]).relative_to(cc)))
@@ -812,7 +812,7 @@ def test_monitor_claude_code_config_is_persistence(tmp_path: Path) -> None:
 
 def test_default_ignore_no_longer_hides_harness_binaries() -> None:
     hidden = [
-        monitor._ignored(path, list(monitors.DEFAULT_IGNORE))
+        monitor._ignored(path, list(monitor_scorer.DEFAULT_IGNORE))
         for path in (
             f"{constants.OPT_DIR}/sandbox-exec",
             f"{constants.OPT_DIR}/monitor.py",
@@ -821,7 +821,7 @@ def test_default_ignore_no_longer_hides_harness_binaries() -> None:
     ]
     assert hidden == [False, False, False]
     home = "/home/agent"
-    expanded = [monitor._expand(p, home) for p in monitors.DEFAULT_IGNORE]
+    expanded = [monitor._expand(p, home) for p in monitor_scorer.DEFAULT_IGNORE]
     harness = next(g for g in load_monitor_groups() if g["name"] == "harness_config")
     for pattern in cast(list[str], harness["paths"]):
         path = monitor._expand(pattern, home)

@@ -121,7 +121,7 @@ parts.append(f"""
     what counts as a failure, and what we expect with and without the bubblewrap sandbox.</p>
     <div class="stats">
       <div><b>17</b><span>containment checks</span></div>
-      <div><b>6</b><span>capability tasks · {n_cases} graded cases</span></div>
+      <div><b>{len(cap)}</b><span>capability tasks · {n_cases} graded cases</span></div>
       <div><b>{len(ipi)}</b><span>injection samples · {n_attacks} attacks + {len(ipi) - n_attacks} controls</span></div>
       <div><b>6</b><span>monitor signals on every agent sample</span></div>
     </div>
