@@ -22,9 +22,10 @@ import anyio
 from inspect_ai.util import (
     ExecResult,
     SandboxUnavailableError,
-    SandboxUserUnsupportedError,
     subprocess,
 )
+
+from agenteval.environments import guest
 
 SSH_PORT = 22
 
@@ -72,7 +73,6 @@ EXEC_SCRIPT_NOINPUT = 'cd -- "$1" || exit; shift; exec "$@" </dev/null'
 EXEC_SCRIPT_INPUT = 'cd -- "$1" || exit; shift; cat | "$@"'
 
 _ENV_KEY = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
-_USER = re.compile(r"^(?:[0-9]+|[A-Za-z_][A-Za-z0-9_.-]*\$?)$")
 
 # ssh client errors (exit 255), matched against the client's own log (``ssh -E``), so
 # a remote command's stderr is never mistaken for them. OpenSSH prefixes auth failures
@@ -171,9 +171,7 @@ def ssh_argv(
 
 
 def validate_user(user: str) -> str:
-    if not _USER.match(user):
-        raise SandboxUserUnsupportedError(f"Invalid user name for the Tart sandbox: {user!r}")
-    return user
+    return guest.validate_user(user, "Tart")
 
 
 def sudo_user(user: str) -> str:

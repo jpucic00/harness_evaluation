@@ -57,8 +57,8 @@ class SandboxUser:
     home: str
 
 
-def script_source(name: str) -> bytes:
-    return resources.files("agenteval.sandbox_scripts").joinpath(name).read_bytes()
+def script_source(name: str, folder: str = "scripts") -> bytes:
+    return resources.files("agenteval.guest").joinpath(folder, name).read_bytes()
 
 
 def parse_passwd(line: str) -> SandboxUser:

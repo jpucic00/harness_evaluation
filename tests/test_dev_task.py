@@ -147,7 +147,7 @@ def test_opencode_launch_label_without_description() -> None:
 
 
 def test_opencode_header_timeout_covers_the_shim() -> None:
-    from agenteval.sandbox_scripts import think_shim
+    from agenteval.guest.dev import think_shim
 
     # OpenCode must wait at least as long as the shim waits for the bridge (no streaming)
     assert task.HEADER_TIMEOUT_MS >= think_shim.UPSTREAM_TIMEOUT * 1000

@@ -31,7 +31,7 @@ from pydantic import (
 )
 
 from agenteval import constants
-from agenteval.sandbox_scripts.probe import Check, load_checks
+from agenteval.guest.scripts.probe import Check, load_checks
 
 if TYPE_CHECKING:
     from agenteval.suites.reference_cases import CaseSet

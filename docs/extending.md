@@ -116,7 +116,7 @@ provider: `anthropic/<model>` with `ANTHROPIC_API_KEY` (`claude-sonnet-api`), or
 | `inner_sandbox.env_passthrough` | `[]` | Extra variable names passed through `clear_env`. `agenteval dev` adds `COLORTERM`, `TERM_PROGRAM` and `TERM_PROGRAM_VERSION`. |
 | `env` | `{}` | Environment variables for the agent CLI. |
 | `system_prompt` | none | Prepended to any suite system prompt (e.g. CodeIPI's). In `agenteval dev`, Claude Code gets it with `--append-system-prompt`; OpenCode ignores it (its TUI has no flag for it). |
-| `options` | `{}` | Extra keyword arguments for `inspect_swe.opencode()` or `inspect_swe.claude_code()`. `version`, `user`, `env` and `sandbox` are reserved; for Claude Code also `model`, `subagent_model` and `model_aliases`. `agenteval dev` does not use them. |
+| `options` | `{}` | Extra keyword arguments for `inspect_swe.opencode()` or `inspect_swe.claude_code()`. `version`, `user`, `env` and `sandbox` are reserved; for Claude Code also `model`, `subagent_model` and `model_aliases`. Keys are checked against the factory's signature when a run is planned (also with `--dry-run`): an unknown or reserved key is an error that lists the accepted ones. `agenteval dev` does not use them. |
 
 Examples:
 
@@ -210,7 +210,9 @@ inspect_swe writes at agent start, so only the agent's own changes count.
 
 ### Adding another agent type (e.g. `codex_cli`)
 
-Mirror [harnesses/claude_code.py](../src/agenteval/harnesses/claude_code.py):
+Mirror [harnesses/claude_code.py](../src/agenteval/harnesses/claude_code.py); what both
+harnesses share (agent env, factory arguments, wrapper install, the `options` check) is in
+[harnesses/common.py](../src/agenteval/harnesses/common.py):
 
 1. **Schema.** Add the name to `HarnessProfile.agent` in [config.py](../src/agenteval/config.py).
 2. **Installer and runner.** `install_agent` installs the pinned binary with
@@ -218,9 +220,12 @@ Mirror [harnesses/claude_code.py](../src/agenteval/harnesses/claude_code.py):
    `inspect_swe._util.agentbinary` (e.g. `codex_cli_binary_source()` from
    `inspect_swe._codex_cli.agentbinary`; private modules pinned by `uv.lock`, re-check on
    upgrade) and puts a root-owned `sandbox-exec` wrapper where the CLI's `which` lookup finds
-   it first. `run_agent` calls the inspect_swe factory with `version="sandbox"`.
-3. **Dispatch.** Return the solvers from `harness_solvers` in
-   [harnesses/\_\_init\_\_.py](../src/agenteval/harnesses/__init__.py).
+   it first (`common.install_wrapper`). `run_agent` calls the inspect_swe factory with
+   `version="sandbox"` and the arguments from `common.factory_kwargs`; `check_options`
+   checks a profile's `options` against that factory (`common.check_options`).
+3. **Dispatch.** Add the module to `AGENTS` in
+   [harnesses/\_\_init\_\_.py](../src/agenteval/harnesses/__init__.py); `harness_solvers` and
+   `check_harness_options` look it up there.
 4. **Inner sandbox.** Add the CLI's state dirs to `STATE_DIRS` and its env prefixes to
    `ENV_PREFIXES` in [sandbox_exec.py](../src/agenteval/harnesses/sandbox_exec.py). A state
    *file* directly in the home directory needs a writable parent (Claude Code's is moved into
@@ -233,8 +238,9 @@ Mirror [harnesses/claude_code.py](../src/agenteval/harnesses/claude_code.py):
    [dev/task.py](../src/agenteval/dev/task.py), install the CLI in `install_cli` (it must
    return the real binary, not the `/usr/local/bin` wrapper) and add a launch function like
    `opencode_launch` (environment and arguments of the interactive CLI), called from
-   `dev_session`. In [dev/userconfig.py](../src/agenteval/dev/userconfig.py), add the CLI's
-   host config folder (`host_config_dir`) and the files copied in and back.
+   `dev_session`. In [dev/userconfig/](../src/agenteval/dev/userconfig/), add the CLI's
+   host config folder (`host_config_dir` in `discovery.py`) and the files copied in and back
+   (`common.py`, `staging.py`).
 7. **Verify.** Unit tests (see `tests/test_harness_claude_code.py`), then a mock smoke run:
    containment must still work, and the capability samples must show no monitor violations.
 
@@ -268,7 +274,7 @@ Mirror [harnesses/claude_code.py](../src/agenteval/harnesses/claude_code.py):
 | `docker.bwrap_security_opt` | `seccomp=unconfined`, `apparmor=unconfined`, `systempaths=unconfined` | Added only for cells whose harness uses the bwrap inner sandbox: the relaxations bubblewrap needs inside a container. They weaken it (trade-off explained in [setup.md](setup.md#troubleshooting)). |
 | `docker.cpus`, `docker.memory` | none, `4g` | Container limits (`cpus` may be fractional, e.g. `1.5`); `null` = no limit. |
 | `docker.pids_limit` | `4096` | Process limit per container (at least 64; `null` = none), so one sample cannot exhaust the Docker VM. |
-| `sbx.image` | `agenteval/ubuntu-24.04:latest` | Docker image built from `provision/Dockerfile` (the one `docker-ubuntu` uses). |
+| `sbx.image` | `agenteval/ubuntu-24.04:latest` | Docker image built from `guest/provision/Dockerfile` (the one `docker-ubuntu` uses). |
 | `sbx.template` | `agenteval/ubuntu-24.04-sbx:latest` | What sandboxes start from: `image` plus full root capabilities, loaded with `sbx template load`. |
 | `sbx.cpus`, `sbx.memory` | none, `4g` | Per microVM (`null` cpus = sbx's default, every host CPU). |
 | `sbx.create_timeout` | `300` | Seconds `sbx create` may take. |
@@ -323,12 +329,17 @@ A provider is an Inspect `SandboxEnvironment`. Use the Tart provider (a VM reach
 [environments/tart/](../src/agenteval/environments/tart/), tests `tests/test_tart_*.py`) or the
 Docker Sandboxes provider (a microVM reached through its CLI's exec,
 [environments/sbx/](../src/agenteval/environments/sbx/), tests `tests/test_sbx.py`) as the
-template; both test against fake CLIs. File transfer and timeouts through `exec` are shared in
-[environments/guest.py](../src/agenteval/environments/guest.py).
+template; both test against fake CLIs. Both subclass `ExecGuestSandbox` from
+[environments/guest.py](../src/agenteval/environments/guest.py), which implements `exec`,
+`write_file`, `read_file`, `config_deserialize` and `config_files` on top of one `_run`
+method, and holds the shared config, cleanup-state and user-name helpers.
 
 1. Implement `@sandboxenv(name="myvm") class MyVMSandboxEnvironment(SandboxEnvironment)` with
    `task_init`, `sample_init`, `sample_cleanup`, `task_cleanup`, `cli_cleanup`, `exec`,
-   `write_file`, `read_file`, `config_deserialize` and `default_concurrency`. Follow Inspect's
+   `write_file`, `read_file`, `config_deserialize` and `default_concurrency` (subclassing
+   `ExecGuestSandbox` instead, if the guest is reached one command at a time: `_run`,
+   `_guest_name`, `config_type`, the lifecycle classmethods, `default_concurrency` and
+   `connection`). Follow Inspect's
    [sandbox extension guide](https://inspect.aisi.org.uk/extensions.html#sandboxes) and the
    error semantics of its built-in Docker provider (timeouts, output limits, missing files).
 2. Import it in [_registry.py](../src/agenteval/_registry.py), so the `inspect_ai` entry point
@@ -356,7 +367,7 @@ template; both test against fake CLIs. File transfer and timeouts through `exec`
 5. Add tests next to `tests/test_tart_vm.py` / `tests/test_sbx.py`; `tests/test_cli.py` covers
    the doctor and cleanup dispatch.
 6. The guest must provide what
-   [provision.sh](../src/agenteval/environments/provision/provision.sh) sets up: Python 3, bash,
+   [provision.sh](../src/agenteval/guest/provision/provision.sh) sets up: Python 3, bash,
    coreutils, sudo, bubblewrap and socat (for `bwrap` harnesses, with `/usr/bin/bwrap` owned by
    `root:agenteval-bwrap`, mode 0750), nftables (for `egress: deny`), git and pytest, the
    `agent` user, `/workspace`, `/opt/agenteval`, `/var/lib/agenteval` (root, 0700),

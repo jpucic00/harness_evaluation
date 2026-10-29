@@ -27,7 +27,7 @@ import pytest
 
 from agenteval import constants
 from agenteval.cases import load_monitor_groups
-from agenteval.sandbox_scripts import collector, monitor, probe
+from agenteval.guest.scripts import collector, monitor, probe
 from agenteval.suites import monitors
 
 SCRIPTS = Path(probe.__file__).parent

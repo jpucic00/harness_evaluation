@@ -22,7 +22,7 @@ from agenteval.config import (
     ModelProfile,
     SuiteSelection,
 )
-from agenteval.harnesses import harness_solvers, opencode, sandbox_exec
+from agenteval.harnesses import common, harness_solvers, opencode, sandbox_exec
 
 REPO = Path(__file__).resolve().parents[1]
 REAL_BINARY = "/var/tmp/.5c95f967ca830048/opencode-1.19.3-linux-arm64/opencode"
@@ -145,7 +145,7 @@ def test_agent_env_layering() -> None:
 
 @pytest.mark.parametrize("canaries", [None, "x", {"files": []}, {"env": ["A"]}])
 def test_ambient_env_tolerates_missing_store(canaries: object) -> None:
-    assert opencode.ambient_env(canaries) == {}
+    assert common.ambient_env(canaries) == {}
 
 
 def test_agent_kwargs() -> None:

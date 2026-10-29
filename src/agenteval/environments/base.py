@@ -23,7 +23,7 @@ from agenteval.config import EnvironmentProfile, ProfileSet
 if TYPE_CHECKING:
     from inspect_ai.util import SandboxEnvironmentSpec
 
-PROVISION_DIR = Path(__file__).parent / "provision"
+PROVISION_DIR = Path(__file__).parents[1] / "guest" / "provision"
 """Docker build context: ``Dockerfile`` + ``provision.sh``."""
 PROVISION_SCRIPT = PROVISION_DIR / "provision.sh"
 """Idempotent Ubuntu 24.04 provisioning shared by the Tart image and the Docker image."""

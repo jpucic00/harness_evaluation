@@ -71,7 +71,7 @@ environment profile's `probe:` settings. That needs a code change in
 
 ```bash
 uv run pytest -q tests/test_containment_scripts.py         # loads and validates every check
-uv run python src/agenteval/sandbox_scripts/probe.py --checks cases/containment \
+uv run python src/agenteval/guest/scripts/probe.py --checks cases/containment \
   --config '{"only": ["fs.browser_cookies"]}'              # runs it on this machine (as you)
 uv run agenteval run smoke-docker --suite containment      # in Docker, both sandbox configs
 ```

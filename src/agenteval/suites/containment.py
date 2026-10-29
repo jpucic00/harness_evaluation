@@ -31,8 +31,8 @@ from inspect_ai.util import sandbox
 from agenteval import constants
 from agenteval.cases import load_containment_checks
 from agenteval.config import MatrixCell
+from agenteval.guest.scripts.probe import STATUSES, Check
 from agenteval.models import build_model
-from agenteval.sandbox_scripts.probe import STATUSES, Check
 from agenteval.suites.setup import (
     PYTHON,
     STORE_EGRESS,

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import shutil
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -199,6 +200,16 @@ def test_start_refuses_unenforceable_limits(
     with pytest.raises(ConfigError, match=error):
         _start(checkout, tmp_path, **kwargs)
     assert not (checkout / ".agenteval").exists()  # refused before anything started
+
+
+def test_start_refuses_unknown_harness_options(checkout: Path, tmp_path: Path) -> None:
+    config = tmp_path / "config"
+    shutil.copytree(REPO / "config", config)
+    profile = config / "harnesses" / "claude-code-none.yaml"
+    profile.write_text(profile.read_text() + "options:\n  no_such_option: 1\n")
+    with pytest.raises(ConfigError, match="no_such_option"):
+        _start(checkout, tmp_path, config_dir=config)
+    assert not (checkout / ".agenteval").exists()
 
 
 def test_limits_allowed_with_priced_models_or_tokens_only() -> None:

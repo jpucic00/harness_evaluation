@@ -1,6 +1,6 @@
 """Docker environment: compose file generation and image build.
 
-Every sample gets a fresh container of a locally built image (``provision/Dockerfile``,
+Every sample gets a fresh container of a locally built image (``guest/provision/Dockerfile``,
 the same provisioning as the Tart image). The compose file has no host mounts and,
 when the environment denies egress, no network besides loopback. The image is
 never pulled: a missing image fails fast instead of fetching a same-named image
@@ -269,7 +269,8 @@ def build_command(
 def build_image(
     env: EnvironmentProfile, *, force: bool = False, platform: str | None = None
 ) -> None:
-    """Build ``env.docker.image`` from ``provision/Dockerfile`` (output streams to the terminal).
+    """Build ``env.docker.image`` from ``guest/provision/Dockerfile`` (output streams to
+    the terminal).
 
     ``force`` rebuilds without the layer cache and re-pulls the base image;
     ``platform`` (e.g. ``linux/arm64``) defaults to the Docker host's.

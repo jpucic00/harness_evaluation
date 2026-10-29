@@ -56,7 +56,7 @@ docker:
 
 # provider: sbx (Docker Sandboxes). Defaults shown.
 # sbx:
-#   image: agenteval/ubuntu-24.04:latest          # Docker image built from provision/Dockerfile
+#   image: agenteval/ubuntu-24.04:latest          # Docker image built from guest/provision/Dockerfile
 #   template: agenteval/ubuntu-24.04-sbx:latest   # image + full root capabilities, loaded into sbx
 #   cpus: null                # null = sbx default (every host CPU)
 #   memory: 4g                # size string (512m, 4g, ...), at least 512m

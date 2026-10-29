@@ -208,9 +208,9 @@ src/agenteval/
   config.py, constants.py    profile schema; in-sandbox paths and names
   models.py                  Inspect model for a model profile, with its connection (proxy, TLS) settings
   _registry.py               Inspect entry point (registers the "tart" sandbox)
-  environments/              provider registry; Docker, Tart and sbx providers; provisioning
+  environments/              provider registry; Docker, Tart and sbx providers
   harnesses/                 OpenCode and Claude Code install + run, inner sandbox wrapper (sandbox-exec)
-  sandbox_scripts/           probe runner, monitor, collector, egress policy, case runner, dev repo transport, pty relay and reasoning relay (run inside the env)
+  guest/                     everything that runs inside the env: scripts/ (probe runner, monitor, collector, egress policy, case runner), dev/ (repo transport, pty relay, reasoning relay, egress proxy, launcher), templates/ (harness wrappers, sandbox-exec), provision/ (Dockerfile, provision.sh)
   suites/                    containment, capability, injection (CodeIPI + local cases), monitors: load cases/
   report/                    log parsing, economics, HTML templates, opening and serving reports
 tests/                       unit tests (pytest)

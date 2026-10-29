@@ -151,8 +151,8 @@ Each environment needs an image, built once. Every sample then starts from a fre
 ### Docker: `uv run agenteval env build docker-ubuntu`
 
 - Runs `docker build -t agenteval/ubuntu-24.04:latest` on
-  [src/agenteval/environments/provision/](../src/agenteval/environments/provision/), with
-  `FROM ubuntu:24.04` plus [provision.sh](../src/agenteval/environments/provision/provision.sh).
+  [src/agenteval/guest/provision/](../src/agenteval/guest/provision/), with
+  `FROM ubuntu:24.04` plus [provision.sh](../src/agenteval/guest/provision/provision.sh).
   The environment's `agent_user` and `workspace` are passed as build arguments.
 - `provision.sh` installs packages (bubblewrap, socat, python3, pytest, git, nftables, ...),
   creates the unprivileged user `agent` (no sudo, locked password), `/workspace`,

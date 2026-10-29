@@ -161,6 +161,31 @@ def test_profiles_marks_invalid_run(tmp_path: Path) -> None:
     assert "INVALID" in result.output and "unknown models" in result.output
 
 
+@pytest.mark.parametrize(
+    ("options", "error"),
+    [
+        ("{session_titel: x}", "unknown options ['session_titel'] for inspect_swe opencode()"),
+        ("{version: latest}", "options ['version'] are set by agenteval"),
+        ("{session_title: x, attempts: 2}", None),
+    ],
+)
+def test_plan_checks_harness_options(tmp_path: Path, options: str, error: str | None) -> None:
+    config = tmp_path / "cfg"
+    shutil.copytree(CONFIG, config)
+    harness = (config / "harnesses" / "opencode-none.yaml").read_text()
+    (config / "harnesses" / "opts.yaml").write_text(f"{harness}options: {options}\n")
+    if error is None:
+        plan = run_plan.plan_run("smoke-docker", config_dir=config, harnesses=["opts"])
+        assert plan.cells[0].harness.options
+        return
+    with pytest.raises(ConfigError, match="harness 'opts'") as raised:
+        run_plan.plan_run("smoke-docker", config_dir=config, harnesses=["opts"])
+    assert error in str(raised.value)
+    if "unknown" in error:
+        assert "accepted: " in str(raised.value) and "session_title" in str(raised.value)
+        assert "version" not in str(raised.value).split("accepted: ")[1].split(", ")
+
+
 def test_profiles_bad_config_is_a_clean_error(tmp_path: Path) -> None:
     config = tmp_path / "cfg"
     (config / "models").mkdir(parents=True)
@@ -668,7 +693,7 @@ def test_env_build_unknown() -> None:
 
 def test_provision_script_path_points_into_package() -> None:
     path = environments.PROVISION_SCRIPT
-    assert path.parts[-3:] == ("environments", "provision", "provision.sh")
+    assert path.parts[-3:] == ("guest", "provision", "provision.sh")
 
 
 class FakeCommands:

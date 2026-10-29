@@ -115,7 +115,7 @@
       "properties": {
         "image": {
           "default": "agenteval/ubuntu-24.04:latest",
-          "description": "Docker image built from ``provision/Dockerfile`` (the one docker-ubuntu uses).",
+          "description": "Docker image built from ``guest/provision/Dockerfile`` (the one docker-ubuntu uses).",
           "title": "Image",
           "type": "string"
         },

@@ -118,11 +118,11 @@ _ENV_NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
 _PLACEHOLDER = re.compile(r"@@([A-Z_]+)@@")
 
 
-def _template(name: str) -> str:
-    return (files("agenteval.harnesses") / "templates" / name).read_text(encoding="utf-8")
+def _template(name: str, folder: str) -> str:
+    return (files("agenteval.guest") / folder / name).read_text(encoding="utf-8")
 
 
-def render_template(name: str, values: Mapping[str, str]) -> str:
+def render_template(name: str, values: Mapping[str, str], folder: str = "templates") -> str:
     """Substitute ``@@KEY@@`` placeholders in one pass (values are not re-scanned)."""
 
     def sub(match: re.Match[str]) -> str:
@@ -131,7 +131,7 @@ def render_template(name: str, values: Mapping[str, str]) -> str:
             raise KeyError(f"template {name}: no value for placeholder @@{key}@@")
         return values[key]
 
-    return _PLACEHOLDER.sub(sub, _template(name))
+    return _PLACEHOLDER.sub(sub, _template(name, folder))
 
 
 def _check_path(path: str, what: str, *, allow_home: bool) -> str:

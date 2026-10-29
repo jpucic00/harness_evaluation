@@ -37,7 +37,8 @@ from inspect_swe._util.agentbinary import ensure_agent_binary_installed
 
 from agenteval import constants
 from agenteval.config import HarnessProfile, MatrixCell, ModelProfile, SubagentDef
-from agenteval.harnesses.opencode import agent_env
+from agenteval.harnesses.common import agent_env, check_reserved, factory_kwargs, install_wrapper
+from agenteval.harnesses.common import check_options as _check_options
 from agenteval.harnesses.sandbox_exec import install_root_file, render_template, user_home
 from agenteval.models import build_model
 
@@ -108,6 +109,11 @@ def delegation_note(harness: HarnessProfile) -> str | None:
     return "Delegate self-contained subtasks to subagents with the Task tool."
 
 
+def check_options(harness: HarnessProfile) -> None:
+    """Reject ``options`` that ``inspect_swe.claude_code`` does not take or agenteval sets."""
+    _check_options(harness, claude_code, RESERVED_OPTIONS)
+
+
 def worker_model(profile: ModelProfile) -> Model:
     return build_model(profile)
 
@@ -126,23 +132,20 @@ def agent_kwargs(
     inside the eval so its provider arguments apply.
     """
     harness = cell.harness
-    reserved = RESERVED_OPTIONS & set(harness.options)
-    if reserved:
-        raise ValueError(
-            f"harness '{harness.name}': options {sorted(reserved)} are set by agenteval"
-        )
-    prompts = [p for p in (harness.system_prompt, system_prompt, delegation_note(harness)) if p]
-    kwargs: dict[str, Any] = {"cwd": cell.environment.workspace}
-    if prompts:
-        kwargs["system_prompt"] = "\n\n".join(prompts)
+    check_reserved(harness, RESERVED_OPTIONS)
+    extra: dict[str, Any] = {}
     subagent_model, aliases = subagent_routing(harness, cell.subagent_model, worker)
     if subagent_model is not None:
-        kwargs["subagent_model"] = subagent_model
+        extra["subagent_model"] = subagent_model
     if aliases:
-        kwargs["model_aliases"] = aliases
-    kwargs |= harness.options
-    kwargs |= {"version": "sandbox", "user": user, "env": dict(env)}
-    return kwargs
+        extra["model_aliases"] = aliases
+    return factory_kwargs(
+        cell,
+        prompts=(harness.system_prompt, system_prompt, delegation_note(harness)),
+        extra=extra,
+        user=user,
+        env=env,
+    )
 
 
 def subagent_routing(
@@ -203,22 +206,15 @@ async def install_claude(
     binary = await ensure_agent_binary_installed(
         claude_code_binary_source(), harness.version, run_user, sbox
     )
-    if binary == CLAUDE_WRAPPER:
-        current = await sbox.read_file(CLAUDE_WRAPPER)
-        if WRAPPER_MARKER not in current:
-            raise RuntimeError(
-                f"claude is installed at {CLAUDE_WRAPPER}; agenteval needs that path "
-                "for its sandbox wrapper. Pin a version in the harness profile instead."
-            )
-    else:
-        await install_root_file(sbox, CLAUDE_WRAPPER, render_wrapper(binary), "0755")
-
-    found = await sbox.exec(["bash", "-c", "command -v claude"], user=run_user)
-    if not found.success or found.stdout.strip() != CLAUDE_WRAPPER:
-        raise RuntimeError(
-            f"`command -v claude` as '{run_user}' resolves to "
-            f"{found.stdout.strip() or '<nothing>'}, expected {CLAUDE_WRAPPER}"
-        )
+    await install_wrapper(
+        sbox,
+        command="claude",
+        binary=binary,
+        wrapper=CLAUDE_WRAPPER,
+        marker=WRAPPER_MARKER,
+        render=render_wrapper,
+        run_user=run_user,
+    )
 
     home = await user_home(sbox, run_user)
     if seed_settings:

@@ -21,7 +21,7 @@ Scoring runs ``boundary_monitor()`` first, then ``tests_pass()``, so no agent co
 runs between the end of the agent's turn and the monitor reading its root-only
 evidence. ``tests_pass()`` computes the verdict in the scorer process, which never
 imports workspace code. It sends only the case *code* to
-``sandbox_scripts/case_runner.py``, run as the agent user under ``python -I`` (from a
+``guest/scripts/case_runner.py``, run as the agent user under ``python -I`` (from a
 fresh root-owned 0755 directory outside the state dir, bytecode caches redirected
 away from the workspace). The runner calls the workspace functions and returns each
 case's value or exception as JSON; the scorer decodes the plain values and compares
@@ -243,7 +243,7 @@ async def run_reference_tests(
     await run_checked(sbx, ["rm", "-rf", test_dir])
     await run_checked(sbx, ["mkdir", "-p", test_dir])
     await run_checked(sbx, ["chmod", "755", scratch_dir, test_dir])
-    source = resources.files("agenteval.sandbox_scripts").joinpath(RUNNER_SCRIPT).read_bytes()
+    source = resources.files("agenteval.guest.scripts").joinpath(RUNNER_SCRIPT).read_bytes()
     await sbx.write_file(runner, source)
     await run_checked(sbx, ["chmod", "644", runner])
 

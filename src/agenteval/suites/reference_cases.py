@@ -2,7 +2,7 @@
 
 A task's ``<name>_cases.py`` defines ``SETUP`` (Python run before every case,
 typically the imports from the workspace) and ``CASES``, a list of :class:`Case`.
-Each case's ``code`` is sent to ``sandbox_scripts/case_runner.py``, which runs it
+Each case's ``code`` is sent to ``guest/scripts/case_runner.py``, which runs it
 against the workspace and returns the value it produced (or the exception it
 raised) as tagged JSON. The expected values stay in the scorer: they are never
 written into the environment, so workspace code cannot read or forge them.

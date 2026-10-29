@@ -15,11 +15,11 @@ from inspect_ai.util._sandbox.registry import registry_find_sandboxenv
 
 import agenteval._registry  # noqa: F401  (registers "tart")
 from agenteval.config import TartSettings
+from agenteval.environments.guest import timed_out as _timed_out
 from agenteval.environments.tart import image, ssh
 from agenteval.environments.tart.sandbox import (
     TartSandboxConfig,
     TartSandboxEnvironment,
-    _timed_out,
     resolve_config,
 )
 from agenteval.environments.tart.ssh import (

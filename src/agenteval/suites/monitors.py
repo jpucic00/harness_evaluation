@@ -48,7 +48,7 @@ from inspect_ai.solver import TaskState
 from inspect_ai.util import SandboxEnvironment, sandbox
 
 from agenteval import constants
-from agenteval.sandbox_scripts.monitor import scan_canaries_text
+from agenteval.guest.scripts.monitor import scan_canaries_text
 from agenteval.suites.setup import (
     BASELINE,
     PYTHON,

@@ -18,18 +18,16 @@ import shlex
 import sys
 import time
 from dataclasses import dataclass, field
-from pathlib import Path, PurePosixPath
-from typing import Any, Literal, overload, override
+from pathlib import Path
+from typing import ClassVar, override
 
 import anyio
-import yaml
 from inspect_ai._util.error import PrerequisiteError
 from inspect_ai.util import (
     ExecResult,
     SandboxConnection,
     SandboxEnvironment,
     SandboxEnvironmentConfigType,
-    SandboxEnvironmentLimits,
     SandboxUnavailableError,
     SandboxUserUnsupportedError,
     sandboxenv,
@@ -37,16 +35,8 @@ from inspect_ai.util import (
 from pydantic import BaseModel, Field, field_validator
 
 from agenteval.config import TartSettings, size_mb
-from agenteval.environments.guest import (
-    FILE_TIMEOUT,
-    READ_SCRIPT,
-    WRITE_SCRIPT,
-    limit_error,
-    read_error,
-    sh,
-    write_error,
-)
-from agenteval.environments.guest import timed_out as _timed_out
+from agenteval.environments import guest
+from agenteval.environments.guest import ExecGuestSandbox, check_timeout
 
 from . import ssh
 from .image import (
@@ -59,11 +49,6 @@ from .image import (
     tart_available,
 )
 from .ssh import SSHTarget, remote_command, ssh_argv, ssh_run, validate_user, wait_for_ssh
-
-try:  # batch-scoped provider state (pinned inspect-ai); fall back to process-wide
-    from inspect_ai.util._sandbox.lifecycle import sandbox_lifecycle_state
-except ImportError:  # pragma: no cover
-    sandbox_lifecycle_state = None  # type: ignore[assignment]
 
 logger = logging.getLogger(__name__)
 
@@ -92,16 +77,12 @@ class TartSandboxConfig(TartSettings):
 
 
 def resolve_config(config: SandboxEnvironmentConfigType | None) -> TartSandboxConfig:
-    if isinstance(config, TartSandboxConfig):
-        return config
-    if isinstance(config, str):
-        with Path(config).open() as f:
-            return TartSandboxConfig.model_validate(yaml.safe_load(f) or {})
-    if isinstance(config, BaseModel):
-        return TartSandboxConfig.model_validate(config.model_dump())
-    raise ValueError(
+    return guest.resolve_config(
+        config,
+        TartSandboxConfig,
         'The "tart" sandbox needs a TartSandboxConfig: '
-        'SandboxEnvironmentSpec("tart", TartSandboxConfig(...)).'
+        'SandboxEnvironmentSpec("tart", TartSandboxConfig(...)).',
+        from_file=True,
     )
 
 
@@ -114,8 +95,7 @@ _process_state = _TartCleanupState()
 
 
 def _cleanup_state() -> _TartCleanupState:
-    scope = sandbox_lifecycle_state() if sandbox_lifecycle_state is not None else None
-    return scope.get(_TartCleanupState) if scope is not None else _process_state
+    return guest.lifecycle_state(_TartCleanupState, _process_state)
 
 
 _dhcp_warned = False
@@ -132,7 +112,10 @@ def _warn_dhcp_once() -> None:
 
 
 @sandboxenv(name="tart")
-class TartSandboxEnvironment(SandboxEnvironment):
+class TartSandboxEnvironment(ExecGuestSandbox):
+    config_type: ClassVar[type[BaseModel]] = TartSandboxConfig
+    _config: TartSandboxConfig
+
     def __init__(self, vm: TartVM, config: TartSandboxConfig, target: SSHTarget) -> None:
         super().__init__()
         self._vm = vm
@@ -148,23 +131,16 @@ class TartSandboxEnvironment(SandboxEnvironment):
     def target(self) -> SSHTarget:
         return self._target
 
-    # ----------------------------------------------------------------- lifecycle
+    @property
+    @override
+    def _guest_name(self) -> str:
+        return self._vm.name
 
-    @classmethod
-    def config_files(cls) -> list[str]:
-        return []
+    # ----------------------------------------------------------------- lifecycle
 
     @classmethod
     def default_concurrency(cls) -> int | None:
         return 2
-
-    @override
-    def default_polling_interval(self) -> float:
-        return 0.5
-
-    @classmethod
-    def config_deserialize(cls, config: dict[str, Any]) -> BaseModel:
-        return TartSandboxConfig.model_validate(config)
 
     @classmethod
     async def task_init(cls, task_name: str, config: SandboxEnvironmentConfigType | None) -> None:
@@ -268,36 +244,6 @@ class TartSandboxEnvironment(SandboxEnvironment):
     # ----------------------------------------------------------------- exec / files
 
     @override
-    async def exec(
-        self,
-        cmd: list[str],
-        input: str | bytes | None = None,
-        cwd: str | None = None,
-        env: dict[str, str] | None = None,
-        user: str | None = None,
-        timeout: int | None = None,
-        timeout_retry: bool = True,
-        concurrency: bool = True,
-    ) -> ExecResult[str]:
-        # timeout_retry is advisory; only connection failures (command never started)
-        # are retried, since a retried command may have had side effects.
-        result = await self._run(
-            cmd,
-            input=input,
-            cwd=cwd,
-            env=env,
-            user=user,
-            timeout=timeout,
-            concurrency=concurrency,
-            output_limit=SandboxEnvironmentLimits.MAX_EXEC_OUTPUT_SIZE,
-        )
-        return ExecResult(
-            success=result.success,
-            returncode=result.returncode,
-            stdout=result.stdout.decode("utf-8", errors="replace"),
-            stderr=result.stderr.decode("utf-8", errors="replace"),
-        )
-
     async def _run(
         self,
         cmd: list[str],
@@ -336,14 +282,7 @@ class TartSandboxEnvironment(SandboxEnvironment):
             output_limit=output_limit,
             concurrency=concurrency,
         )
-        if timeout is not None and _timed_out(
-            result.returncode, time.monotonic() - started, timeout
-        ):
-            error = TimeoutError(f"Command timed out after {timeout} seconds")
-            partial = (result.stdout + result.stderr).decode("utf-8", errors="replace")
-            if partial:
-                setattr(error, "truncated_output", partial)  # noqa: B010
-            raise error
+        check_timeout(result, started, timeout)
         return result
 
     async def _resolve_user(self, user: str | None) -> str | None:
@@ -373,55 +312,6 @@ class TartSandboxEnvironment(SandboxEnvironment):
             )
         self._known_users.add(run_as)
         return run_as
-
-    def _resolve_path(self, file: str) -> str:
-        path = PurePosixPath(file)
-        if not path.is_absolute():
-            path = PurePosixPath(self._config.default_cwd) / path
-        return path.as_posix()
-
-    @override
-    async def write_file(self, file: str, contents: str | bytes) -> None:
-        path = self._resolve_path(file)
-        data = contents.encode("utf-8") if isinstance(contents, str) else contents
-        result = await self._run(
-            sh(WRITE_SCRIPT, path),
-            input=data,
-            cwd="/",
-            env=None,
-            user=None,
-            timeout=FILE_TIMEOUT,
-            concurrency=True,
-            output_limit=64 * 1024,
-        )
-        if not result.success:
-            raise write_error(result, file, self._vm.name)
-
-    @overload
-    async def read_file(self, file: str, text: Literal[True] = True) -> str: ...
-
-    @overload
-    async def read_file(self, file: str, text: Literal[False]) -> bytes: ...
-
-    @override
-    async def read_file(self, file: str, text: bool = True) -> str | bytes:
-        path = self._resolve_path(file)
-        limit = SandboxEnvironmentLimits.MAX_READ_FILE_SIZE
-        result = await self._run(
-            sh(READ_SCRIPT, path, str(limit)),
-            input=None,
-            cwd="/",
-            env=None,
-            user=None,
-            timeout=FILE_TIMEOUT,
-            concurrency=True,
-            output_limit=limit + 1,
-        )
-        if not result.success:
-            raise read_error(result, file, self._vm.name)
-        if len(result.stdout) > limit:  # grew between the size check and cat
-            raise limit_error()
-        return result.stdout.decode("utf-8") if text else result.stdout
 
     @override
     async def connection(self, *, user: str | None = None) -> SandboxConnection:

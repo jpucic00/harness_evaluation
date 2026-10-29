@@ -1,4 +1,4 @@
-"""pty relay (sandbox_scripts/ptyrelay.py) on a test pty, as under bwrap ``--new-session``.
+"""pty relay (guest/dev/ptyrelay.py) on a test pty, as under bwrap ``--new-session``.
 
 Every relay runs in a new session (``start_new_session``: setsid before exec) with fds
 0-2 inherited from the test's pty slave. Inherited descriptors never make a terminal the
@@ -27,7 +27,7 @@ if sys.platform == "win32":
 import fcntl  # noqa: E402
 import termios  # noqa: E402
 
-from agenteval.sandbox_scripts import ptyrelay  # noqa: E402
+from agenteval.guest.dev import ptyrelay  # noqa: E402
 
 RELAY = Path(ptyrelay.__file__)
 TIMEOUT = 10.0
@@ -59,9 +59,7 @@ while line := sys.stdin.readline():
     if cmd == "kill":
         os.kill(os.getpid(), int(arg))
 """
-LAUNCH = (
-    "import sys\nfrom agenteval.sandbox_scripts import ptyrelay\n{}\nsys.exit(ptyrelay.main())\n"
-)
+LAUNCH = "import sys\nfrom agenteval.guest.dev import ptyrelay\n{}\nsys.exit(ptyrelay.main())\n"
 # The outer pty becomes the relay's controlling terminal, so the relay gets SIGWINCH
 # itself; with polling off only its handler can pass a resize on.
 OWN_TERMINAL = """

@@ -24,7 +24,7 @@ from agenteval.config import (
     expand_matrix,
     load_profiles,
 )
-from agenteval.harnesses import claude_code, harness_solvers
+from agenteval.harnesses import check_harness_options, claude_code, common, harness_solvers
 from agenteval.report.economics import usage_economics
 
 REPO = Path(__file__).resolve().parents[1]
@@ -187,6 +187,36 @@ def test_agent_kwargs_requires_resolved_worker() -> None:
     with pytest.raises(ValueError, match="not resolved"):
         claude_code.agent_kwargs(
             cell(harness(runner="opencode", model="worker")), user="a", system_prompt=None, env={}
+        )
+
+
+def test_check_options() -> None:
+    def profile(options: dict[str, object]) -> HarnessProfile:
+        return HarnessProfile.model_validate(
+            {"name": "cc", "agent": "claude_code", "options": options}
+        )
+
+    # named parameters and the TypedDict keys of **deprecated_args are accepted
+    check_harness_options(profile({"effort": "low", "auto_mode": True}))
+    with pytest.raises(ConfigError, match=r"unknown options \['efort'\].*accepted: .*effort"):
+        check_harness_options(profile({"efort": "low"}))
+    with pytest.raises(ConfigError, match="set by agenteval"):
+        check_harness_options(profile({"subagent_model": "x"}))
+
+
+def test_factory_options_open_kwargs() -> None:
+    def named(a: int, *, b: int = 0) -> None: ...
+
+    def open_kwargs(a: int, **kwargs: object) -> None: ...
+
+    assert common.factory_options(named) == {"a", "b"}
+    assert common.factory_options(open_kwargs) is None
+    # open **kwargs: only the reserved keys are rejected
+    h = HarnessProfile.model_validate({"name": "h", "agent": "opencode", "options": {"zz": 1}})
+    common.check_options(h, open_kwargs, frozenset({"user"}))
+    with pytest.raises(ConfigError, match="set by agenteval"):
+        common.check_options(
+            h.model_copy(update={"options": {"user": "x"}}), open_kwargs, frozenset({"user"})
         )
 
 

@@ -22,8 +22,7 @@ import re
 import shlex
 import time
 from dataclasses import dataclass, field
-from pathlib import PurePosixPath
-from typing import Any, Literal, overload, override
+from typing import ClassVar, override
 
 import anyio
 from inspect_ai._util.error import PrerequisiteError
@@ -32,33 +31,17 @@ from inspect_ai.util import (
     SandboxConnection,
     SandboxEnvironment,
     SandboxEnvironmentConfigType,
-    SandboxEnvironmentLimits,
     SandboxUnavailableError,
-    SandboxUserUnsupportedError,
     sandboxenv,
     subprocess,
 )
 from pydantic import BaseModel, field_validator
 
 from agenteval.config import SbxSettings
-from agenteval.environments.guest import (
-    FILE_TIMEOUT,
-    KILL_AFTER,
-    READ_SCRIPT,
-    WRITE_SCRIPT,
-    limit_error,
-    read_error,
-    sh,
-    timed_out,
-    write_error,
-)
+from agenteval.environments import guest
+from agenteval.environments.guest import KILL_AFTER, ExecGuestSandbox, check_timeout
 
 from . import cli
-
-try:  # batch-scoped provider state (pinned inspect-ai); fall back to process-wide
-    from inspect_ai.util._sandbox.lifecycle import sandbox_lifecycle_state
-except ImportError:  # pragma: no cover
-    sandbox_lifecycle_state = None  # type: ignore[assignment]
 
 logger = logging.getLogger(__name__)
 
@@ -92,7 +75,6 @@ sys.exit(0 if len(reply) == 5 and reply[4] == 12 else 1)
 """
 
 _ENV_KEY = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
-_USER = re.compile(r"^(?:[0-9]+|[A-Za-z_][A-Za-z0-9_.-]*\$?)$")
 _NOT_FOUND = re.compile(r"^error: sandbox '.*' not found", re.MULTILINE)
 
 
@@ -114,13 +96,11 @@ class SbxSandboxConfig(SbxSettings):
 
 
 def resolve_config(config: SandboxEnvironmentConfigType | None) -> SbxSandboxConfig:
-    if isinstance(config, SbxSandboxConfig):
-        return config
-    if isinstance(config, BaseModel):
-        return SbxSandboxConfig.model_validate(config.model_dump())
-    raise ValueError(
+    return guest.resolve_config(
+        config,
+        SbxSandboxConfig,
         'The "sbx" sandbox needs an SbxSandboxConfig: '
-        'SandboxEnvironmentSpec("sbx", SbxSandboxConfig(...)).'
+        'SandboxEnvironmentSpec("sbx", SbxSandboxConfig(...)).',
     )
 
 
@@ -135,14 +115,11 @@ _process_state = _SbxCleanupState()
 
 
 def _cleanup_state() -> _SbxCleanupState:
-    scope = sandbox_lifecycle_state() if sandbox_lifecycle_state is not None else None
-    return scope.get(_SbxCleanupState) if scope is not None else _process_state
+    return guest.lifecycle_state(_SbxCleanupState, _process_state)
 
 
 def validate_user(user: str) -> str:
-    if not _USER.match(user):
-        raise SandboxUserUnsupportedError(f"Invalid user name for the sbx sandbox: {user!r}")
-    return user
+    return guest.validate_user(user, "sbx")
 
 
 def env_assignments(env: dict[str, str]) -> list[str]:
@@ -189,7 +166,10 @@ def exec_argv(
 
 
 @sandboxenv(name="sbx")
-class SbxSandboxEnvironment(SandboxEnvironment):
+class SbxSandboxEnvironment(ExecGuestSandbox):
+    config_type: ClassVar[type[BaseModel]] = SbxSandboxConfig
+    _config: SbxSandboxConfig
+
     def __init__(self, name: str, config: SbxSandboxConfig, unset: tuple[str, ...]) -> None:
         super().__init__()
         self._name = name
@@ -206,24 +186,16 @@ class SbxSandboxEnvironment(SandboxEnvironment):
         """Variables sbx injects that commands run without."""
         return self._unset
 
-    # ----------------------------------------------------------------- lifecycle
+    @property
+    @override
+    def _guest_name(self) -> str:
+        return self._name
 
-    @classmethod
-    def config_files(cls) -> list[str]:
-        return []
+    # ----------------------------------------------------------------- lifecycle
 
     @classmethod
     def default_concurrency(cls) -> int | None:
         return 4
-
-    @override
-    def default_polling_interval(self) -> float:
-        # each sbx exec costs ~0.3 s on the host, several times a docker exec
-        return 0.5
-
-    @classmethod
-    def config_deserialize(cls, config: dict[str, Any]) -> BaseModel:
-        return SbxSandboxConfig.model_validate(config)
 
     @classmethod
     async def task_init(cls, task_name: str, config: SandboxEnvironmentConfigType | None) -> None:
@@ -348,34 +320,6 @@ class SbxSandboxEnvironment(SandboxEnvironment):
     # ----------------------------------------------------------------- exec / files
 
     @override
-    async def exec(
-        self,
-        cmd: list[str],
-        input: str | bytes | None = None,
-        cwd: str | None = None,
-        env: dict[str, str] | None = None,
-        user: str | None = None,
-        timeout: int | None = None,
-        timeout_retry: bool = True,
-        concurrency: bool = True,
-    ) -> ExecResult[str]:
-        result = await self._run(
-            cmd,
-            input=input,
-            cwd=cwd,
-            env=env,
-            user=user,
-            timeout=timeout,
-            concurrency=concurrency,
-            output_limit=SandboxEnvironmentLimits.MAX_EXEC_OUTPUT_SIZE,
-        )
-        return ExecResult(
-            success=result.success,
-            returncode=result.returncode,
-            stdout=result.stdout.decode("utf-8", errors="replace"),
-            stderr=result.stderr.decode("utf-8", errors="replace"),
-        )
-
     async def _run(
         self,
         cmd: list[str],
@@ -419,61 +363,8 @@ class SbxSandboxEnvironment(SandboxEnvironment):
         )
         if result.returncode != 0 and _NOT_FOUND.search(result.stderr.decode(errors="replace")):
             raise SandboxUnavailableError(f"The sbx sandbox {self._name} no longer exists.")
-        elapsed = time.monotonic() - started
-        if timeout is not None and timed_out(result.returncode, elapsed, timeout):
-            error = TimeoutError(f"Command timed out after {timeout} seconds")
-            partial = (result.stdout + result.stderr).decode("utf-8", errors="replace")
-            if partial:
-                setattr(error, "truncated_output", partial)  # noqa: B010
-            raise error
+        check_timeout(result, started, timeout)
         return result
-
-    def _resolve_path(self, file: str) -> str:
-        path = PurePosixPath(file)
-        if not path.is_absolute():
-            path = PurePosixPath(self._config.default_cwd) / path
-        return path.as_posix()
-
-    @override
-    async def write_file(self, file: str, contents: str | bytes) -> None:
-        data = contents.encode("utf-8") if isinstance(contents, str) else contents
-        result = await self._run(
-            sh(WRITE_SCRIPT, self._resolve_path(file)),
-            input=data,
-            cwd="/",
-            env=None,
-            user=None,
-            timeout=FILE_TIMEOUT,
-            concurrency=True,
-            output_limit=64 * 1024,
-        )
-        if not result.success:
-            raise write_error(result, file, self._name)
-
-    @overload
-    async def read_file(self, file: str, text: Literal[True] = True) -> str: ...
-
-    @overload
-    async def read_file(self, file: str, text: Literal[False]) -> bytes: ...
-
-    @override
-    async def read_file(self, file: str, text: bool = True) -> str | bytes:
-        limit = SandboxEnvironmentLimits.MAX_READ_FILE_SIZE
-        result = await self._run(
-            sh(READ_SCRIPT, self._resolve_path(file), str(limit)),
-            input=None,
-            cwd="/",
-            env=None,
-            user=None,
-            timeout=FILE_TIMEOUT,
-            concurrency=True,
-            output_limit=limit + 1,
-        )
-        if not result.success:
-            raise read_error(result, file, self._name)
-        if len(result.stdout) > limit:  # grew between the size check and head
-            raise limit_error()
-        return result.stdout.decode("utf-8") if text else result.stdout
 
     @override
     async def connection(self, *, user: str | None = None) -> SandboxConnection:

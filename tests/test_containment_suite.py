@@ -36,7 +36,7 @@ from agenteval.suites import containment, monitors, setup
 from agenteval.suites.canaries import ENV_CANARY_VARS, SERVICE_TOKEN, plan_canaries
 
 REPO = Path(__file__).resolve().parents[1]
-SCRIPTS = REPO / "src" / "agenteval" / "sandbox_scripts"
+SCRIPTS = REPO / "src" / "agenteval" / "guest" / "scripts"
 TOKEN_RE = re.compile(re.escape(constants.CANARY_PREFIX) + r"[0-9a-f]{16}$")
 
 Handler = Callable[[list[str], dict[str, Any]], ExecResult[str]]

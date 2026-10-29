@@ -1,4 +1,4 @@
-"""The reasoning relay for OpenCode in agenteval dev (sandbox_scripts/think_shim.py)."""
+"""The reasoning relay for OpenCode in agenteval dev (guest/dev/think_shim.py)."""
 
 from __future__ import annotations
 
@@ -15,7 +15,7 @@ from inspect_ai.model._model_output import ChatCompletionChoice
 from inspect_ai.model._openai import messages_from_openai, openai_chat_choices
 from inspect_ai.model._openrouter_reasoning import openrouter_reasoning_details_to_reasoning
 
-from agenteval.sandbox_scripts import think_shim
+from agenteval.guest.dev import think_shim
 
 DETAILS = [
     {

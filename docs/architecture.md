@@ -211,7 +211,7 @@ What these boundaries do not (yet) guarantee is listed under
   never enter the environment as files.
 - **Capability scoring.** `tests_pass` computes the verdict in the scorer process on the host,
   which never imports workspace code. It writes
-  [case_runner.py](../src/agenteval/sandbox_scripts/case_runner.py) into a fresh root-owned
+  [case_runner.py](../src/agenteval/guest/scripts/case_runner.py) into a fresh root-owned
   0755 directory, `/opt/agenteval/capability-tests/<task-id>`, outside the root-only
   `/var/lib/agenteval`, and runs it **as the agent user** with `python -I` (no `PYTHONPATH`,
   user site-packages or script dir; bytecode caches redirected away from the workspace). The
@@ -341,7 +341,7 @@ but healthy attempt may still take up to 900 s. The solver
    refused.
 3. Copy mode: the host snapshot bundle is fetched into the environment's `workspace`
    (`/workspace` by default) by
-   [sandbox_scripts/dev_repo.py](../src/agenteval/sandbox_scripts/dev_repo.py) as the agent
+   [guest/dev/dev_repo.py](../src/agenteval/guest/dev/dev_repo.py) as the agent
    user; the env's base tree hash must equal the host's. In both modes the sanitized CLI
    config is unpacked into the agent's home (in copy mode, Claude Code's gitignored
    `CLAUDE.local.md` into the workspace) unless `--no-host-config` is given. The
@@ -398,7 +398,7 @@ host runs or reads (`config`, `hooks/`, `info/`, ...) at the start, and `live_re
 lists what changed.
 
 Review and apply are host-only ([dev/review.py](../src/agenteval/dev/review.py),
-[dev/repo.py](../src/agenteval/dev/repo.py), [dev/userconfig.py](../src/agenteval/dev/userconfig.py)).
+[dev/repo/](../src/agenteval/dev/repo/), [dev/userconfig/](../src/agenteval/dev/userconfig/)).
 Nothing of agenteval's (bridge URL, placeholder key) is written into the user's config
 files: Claude Code gets it via `--settings` and environment variables, OpenCode via
 `OPENCODE_CONFIG_CONTENT` and environment variables.
@@ -425,14 +425,14 @@ repo.
 | [models.py](../src/agenteval/models.py) | `build_model(profile)`: the Inspect `Model` for a model profile, with its `model_args` and `connection` settings (proxy policy, CA bundle, client certificate). |
 | [constants.py](../src/agenteval/constants.py) | In-environment paths (`/opt/agenteval`, `/var/lib/agenteval`, ...), collector address, store keys, canary prefix; `checkout_root()`, the checkout `agenteval dev` takes its profiles, `.env`, logs and sessions from. |
 | [cli.py](../src/agenteval/cli.py) | The click wrapper; the logic behind it is testable without click: |
-| [run/](../src/agenteval/run/) | `agenteval run`: `plan.py` (run ids, run files, overrides, `plan_run` -> `RunPlan`), `execute.py` (`execute_run`: prices, risk warnings, resource sampler, `eval_set`, the run report). |
+| [run/](../src/agenteval/run/) | `agenteval run`: `plan.py` (run ids, run files, overrides, `plan_run` -> `RunPlan`, harness `options` checked here), `execute.py` (`execute_run`: prices, risk warnings, resource sampler, `eval_set`, the run report). |
 | [doctor.py](../src/agenteval/doctor.py) | `agenteval doctor`: Python, packages, profiles and env vars, plus each provider's checks. |
 | [profiles.py](../src/agenteval/profiles.py) | `agenteval profiles`, environment lookup, the plain-text table helper. |
 | [_registry.py](../src/agenteval/_registry.py) | Inspect entry point; importing it registers the `tart` sandbox. |
-| [environments/](../src/agenteval/environments/) | `Provider` interface (`base.py`: spec, build, identity, image label, cleanup, doctor checks) and the `PROVIDERS` registry with `sandbox_spec(env, inner_sandbox=..., mounts=...)` (`mounts`: dev live mode only), `build_environment`, `cleanup_environments`, `environment_identity` (`__init__.py`); Docker compose, image build and provider (`docker.py`), Tart provider (`tart/provider.py`, `tart/sandbox.py`, `tart/ssh.py`, `tart/image.py`), Docker Sandboxes provider (`sbx/provider.py`, `sbx/sandbox.py`, `sbx/cli.py`), file transfer through exec (`guest.py`), shared `provision/`. |
-| [harnesses/](../src/agenteval/harnesses/) | `harness_solvers(cell)`, OpenCode and Claude Code install/run (`opencode.py`, `claude_code.py`), `sandbox-exec` templates, the dev launcher template `dev-launch.sh`. |
-| [sandbox_scripts/](../src/agenteval/sandbox_scripts/) | Stdlib-only scripts uploaded into each environment: `probe.py` (runner for the check files in `cases/containment/`), `monitor.py`, `collector.py`, `egress.sh`, `case_runner.py`; for dev sessions `dev_repo.py` (repo import/export), `ptyrelay.py` and `think_shim.py` (reasoning relay for OpenCode). |
-| [dev/](../src/agenteval/dev/) | `agenteval dev`: `commands.py` (start/apply/list), `task.py` (session solver, launcher, docker/tart access), `repo.py` (snapshot, fetch, per-file 3-way apply, fast-forward), `userconfig.py` (CLI config + memory staging, sanitizing, merge back), `review.py` (summary, diffs, prompts), `session.py` (records under `.agenteval/sessions/`). |
+| [environments/](../src/agenteval/environments/) | `Provider` interface (`base.py`: spec, build, identity, image label, cleanup, doctor checks) and the `PROVIDERS` registry with `sandbox_spec(env, inner_sandbox=..., mounts=...)` (`mounts`: dev live mode only), `build_environment`, `cleanup_environments`, `environment_identity` (`__init__.py`); Docker compose, image build and provider (`docker.py`), Tart provider (`tart/provider.py`, `tart/sandbox.py`, `tart/ssh.py`, `tart/image.py`), Docker Sandboxes provider (`sbx/provider.py`, `sbx/sandbox.py`, `sbx/cli.py`), `ExecGuestSandbox`, the base of the Tart and sbx sandboxes, with file transfer and timeouts through exec (`guest.py`, host side: not the `guest/` package). |
+| [harnesses/](../src/agenteval/harnesses/) | `harness_solvers(cell)` and `check_harness_options(harness)` (the `AGENTS` map), OpenCode and Claude Code install/run (`opencode.py`, `claude_code.py`) and what they share (`common.py`: agent env, factory arguments, wrapper install, `options` check); their shell templates live in `guest/templates/`. |
+| [guest/](../src/agenteval/guest/) | Everything that runs inside the environment (stdlib-only Python 3.12 or sh; not to be confused with the host-side `environments/guest.py`): `scripts/` uploaded for eval runs: `probe.py` (runner for the check files in `cases/containment/`), `monitor.py`, `collector.py`, `egress.sh` (also used by dev), `case_runner.py`; `dev/` for dev sessions only: `dev_repo.py` (repo import/export), `ptyrelay.py`, `think_shim.py` (reasoning relay for OpenCode), `egress_proxy.py`, the launcher template `dev-launch.sh`; `templates/`: harness wrappers and `sandbox-exec` templates; `provision/`: `Dockerfile` + `provision.sh` (Docker build context, Tart and sbx images). |
+| [dev/](../src/agenteval/dev/) | `agenteval dev`: `commands.py` (start/apply/list), `task.py` (session solver, launcher, docker/tart access), `repo/` (snapshot, fetch, per-file 3-way apply, fast-forward: `discovery.py`, `export_import.py`, `review_items.py`, `commits.py`, `host_paths.py`, `live.py`, shared helpers in `common.py`), `userconfig/` (CLI config + memory staging, sanitizing, merge back: `discovery.py`, `sanitizing.py`, `reports.py`, `staging.py`, `returned.py`, `merge.py`, `flags.py`, `review_items.py`, shared limits and patterns in `common.py`), `review.py` (summary, diffs, prompts), `session.py` (records under `.agenteval/sessions/`). |
 | [suites/](../src/agenteval/suites/) | `SUITES` registry and `build_task`, sample setup and root shell helpers (`setup.py`), canary planning (`canaries.py`), the three suites, `monitors.py`, the capability reference-case protocol (`reference_cases.py`). |
 | [resource_sampler.py](../src/agenteval/resource_sampler.py) | Host CPU/memory sampler that runs next to `eval_set` (`resources.jsonl`). |
 | [report/](../src/agenteval/report/) | `records.py` (logs -> records), `scores.py` (scorer values -> typed results), `views.py` (records -> report sections), `economics.py` (pure arithmetic), `resources_view.py` (the Resources section), `build.py` + Jinja templates, `serve.py` (`report open`/`serve`, the `view` command). |

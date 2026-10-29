@@ -9,7 +9,7 @@ from collections.abc import Iterator
 
 import pytest
 
-from agenteval.sandbox_scripts import egress_proxy
+from agenteval.guest.dev import egress_proxy
 
 
 @pytest.mark.parametrize(

@@ -394,6 +394,7 @@ def render_launcher(
             "CWD": shlex.quote(cwd),
             "COMMAND": shlex.join(command),
         },
+        folder="dev",
     )
 
 
@@ -575,14 +576,14 @@ async def base_setup(sbox: SandboxEnvironment, spec: DevSpec, user: SandboxUser)
         ),
         "dev directories",
     )
-    for name, path, mode in (
-        ("egress.sh", EGRESS, "0755"),
-        ("ptyrelay.py", RELAY, "0644"),
-        ("dev_repo.py", DEV_REPO, "0644"),
-        ("think_shim.py", THINK_SHIM, "0644"),
-        ("egress_proxy.py", EGRESS_PROXY, "0644"),
+    for folder, name, path, mode in (
+        ("scripts", "egress.sh", EGRESS, "0755"),
+        ("dev", "ptyrelay.py", RELAY, "0644"),
+        ("dev", "dev_repo.py", DEV_REPO, "0644"),
+        ("dev", "think_shim.py", THINK_SHIM, "0644"),
+        ("dev", "egress_proxy.py", EGRESS_PROXY, "0644"),
     ):
-        await install_root_file(sbox, path, script_source(name).decode(), mode)
+        await install_root_file(sbox, path, script_source(name, folder).decode(), mode)
     policy = await run_root(
         sbox,
         ["/bin/sh", EGRESS, "apply", spec.dev_env.egress, "--uid", str(user.uid)],

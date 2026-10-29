@@ -21,7 +21,7 @@ import pytest
 from agenteval.dev import repo as devrepo
 from agenteval.dev.review import ReviewItem
 from agenteval.dev.session import DevSession, ResultState
-from agenteval.sandbox_scripts import dev_repo
+from agenteval.guest.dev import dev_repo
 
 SCRIPT = Path(dev_repo.__file__)
 SID = "20261019T000000Z-test-abcd"
@@ -471,7 +471,7 @@ def test_unmerged_index_warns_and_uses_head_tree(tmp_path: Path) -> None:
 
 
 def test_large_new_content_asks_first(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(devrepo, "CONFIRM_BYTES", 10)
+    monkeypatch.setattr("agenteval.dev.repo.discovery.CONFIRM_BYTES", 10)
     host = make_repo(tmp_path / "host")
     write(host / "big.txt", "x" * 100)
     asked: list[str] = []

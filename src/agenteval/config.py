@@ -357,7 +357,7 @@ class SbxSettings(_ProviderSettings):
     sandbox template by ``agenteval env build``."""
 
     image: str = "agenteval/ubuntu-24.04:latest"
-    """Docker image built from ``provision/Dockerfile`` (the one docker-ubuntu uses)."""
+    """Docker image built from ``guest/provision/Dockerfile`` (the one docker-ubuntu uses)."""
     template: str = "agenteval/ubuntu-24.04-sbx:latest"
     """What sandboxes start from: ``image`` plus the label that gives root in the sandbox
     its full capabilities (the egress rule needs CAP_NET_ADMIN), loaded with

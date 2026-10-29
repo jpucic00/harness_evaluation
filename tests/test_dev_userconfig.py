@@ -826,7 +826,7 @@ def test_extract_returned_filters(
     assert json.loads((tmp_path / "s/config/skipped.json").read_text()) == ["memory/big.md"]
     assert not (tmp_path / "escape.md").exists()
 
-    monkeypatch.setattr(userconfig, "MAX_TOTAL_BYTES", 2)
+    monkeypatch.setattr("agenteval.dev.userconfig.returned.MAX_TOTAL_BYTES", 2)
     with pytest.raises(ValueError, match="larger than"):
         extract_returned(tar, state, tmp_path / "s")
     assert not vm.exists()

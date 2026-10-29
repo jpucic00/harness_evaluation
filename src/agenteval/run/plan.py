@@ -166,6 +166,19 @@ def apply_overrides(
         raise ConfigError(f"run '{run.name}': invalid override: {ex}") from ex
 
 
+def check_options(cells: Sequence[MatrixCell]) -> None:
+    """Check each harness profile's ``options`` against its agent factory, so a typo
+    fails here rather than inside every sample."""
+    harnesses = {cell.harness.name: cell.harness for cell in cells if cell.harness.options}
+    if not harnesses:
+        return
+    # loads inspect_ai/inspect_swe, so only when there is something to check
+    from agenteval.harnesses import check_harness_options
+
+    for harness in harnesses.values():
+        check_harness_options(harness)
+
+
 def plan_run(
     run_file: str | Path,
     *,
@@ -191,6 +204,7 @@ def plan_run(
     cells = expand_matrix(run, load_profiles(config_dir))
     if not cells:
         raise ConfigError(f"run '{run.name}': the matrix is empty")
+    check_options(cells)
     # eval_set takes one value for all tasks, so use the most constrained environment:
     # a Tart host that can boot 2 VMs must not be asked for 4 because Docker could.
     concurrency = min(cell.environment.max_concurrent for cell in cells)

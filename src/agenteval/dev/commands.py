@@ -47,6 +47,7 @@ from agenteval.dev.task import (
     RepoTransfer,
     build_dev_task,
 )
+from agenteval.harnesses import check_harness_options
 from agenteval.report.economics import TokenUsage
 from agenteval.run.execute import register_model_prices
 
@@ -164,6 +165,7 @@ def start_session(
     load_dotenv(checkout / ".env", override=False)
     profiles = load_profiles(config_dir)
     h, e, m, sub = _profiles(profiles, harness, environment, model, subagent_model)
+    check_harness_options(h)
     _check_limits([p for p in (m, sub) if p is not None], cost_limit, token_limit)
     missing = missing_env([p for p in (m, sub) if p is not None])
     if missing:

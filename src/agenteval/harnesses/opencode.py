@@ -21,8 +21,10 @@ from inspect_swe import opencode
 from inspect_swe._opencode.agentbinary import ensure_opencode_setup
 
 from agenteval import constants
-from agenteval.config import MatrixCell
-from agenteval.harnesses.sandbox_exec import install_root_file, render_template
+from agenteval.config import HarnessProfile, MatrixCell
+from agenteval.harnesses.common import agent_env, check_reserved, factory_kwargs, install_wrapper
+from agenteval.harnesses.common import check_options as _check_options
+from agenteval.harnesses.sandbox_exec import render_template
 
 OPENCODE_WRAPPER = "/usr/local/bin/opencode"
 WRAPPER_MARKER = "agenteval opencode wrapper"
@@ -38,25 +40,9 @@ def render_wrapper(binary: str) -> str:
     )
 
 
-def ambient_env(canaries: object) -> dict[str, str]:
-    """Canary env vars planted by ``prepare_sample`` (``store[STORE_CANARIES]["env"]``)."""
-    if not isinstance(canaries, Mapping):
-        return {}
-    env = canaries.get("env")
-    if not isinstance(env, Mapping):
-        return {}
-    return {str(k): str(v) for k, v in env.items()}
-
-
-def agent_env(
-    cell: MatrixCell, canaries: object = None, extra_env: Mapping[str, str] | None = None
-) -> dict[str, str]:
-    """Agent env: harness env, then ambient canaries (if enabled), then ``extra_env``."""
-    env = dict(cell.harness.env)
-    if cell.environment.ambient_secrets:
-        env |= ambient_env(canaries)
-    env |= dict(extra_env or {})
-    return env
+def check_options(harness: HarnessProfile) -> None:
+    """Reject ``options`` that ``inspect_swe.opencode`` does not take or agenteval sets."""
+    _check_options(harness, opencode, RESERVED_OPTIONS)
 
 
 def agent_kwargs(
@@ -64,26 +50,23 @@ def agent_kwargs(
 ) -> dict[str, Any]:
     """Keyword arguments for ``inspect_swe.opencode``."""
     harness = cell.harness
-    reserved = RESERVED_OPTIONS & set(harness.options)
-    if reserved:
-        raise ValueError(
-            f"harness '{harness.name}': options {sorted(reserved)} are set by agenteval"
-        )
-    prompts = [p for p in (harness.system_prompt, system_prompt) if p]
-    kwargs: dict[str, Any] = {"cwd": cell.environment.workspace}
-    if prompts:
-        kwargs["system_prompt"] = "\n\n".join(prompts)
+    check_reserved(harness, RESERVED_OPTIONS)
+    extra: dict[str, Any] = {}
     agent_env = dict(env)
     cli_model = harness.agent_model or cell.model.agent_models.get(harness.agent)
     if cli_model:
-        kwargs["opencode_model"] = cli_model
+        extra["opencode_model"] = cli_model
         # OpenCode refuses to start a provider without its key variable. Requests go
         # to the Inspect bridge, so a placeholder is enough; real keys stay on the host.
         provider = cli_model.split("/", 1)[0] if "/" in cli_model else "anthropic"
         agent_env.setdefault(f"{provider.upper().replace('-', '_')}_API_KEY", "sk-none")
-    kwargs |= harness.options
-    kwargs |= {"version": "sandbox", "user": user, "env": agent_env}
-    return kwargs
+    return factory_kwargs(
+        cell,
+        prompts=(harness.system_prompt, system_prompt),
+        extra=extra,
+        user=user,
+        env=agent_env,
+    )
 
 
 def opencode_agent(
@@ -114,24 +97,15 @@ async def install_opencode(
     and the dependency bin directories (node, ripgrep).
     """
     binary, dep_dirs = await ensure_opencode_setup(sbox, version, run_user)
-    if binary == OPENCODE_WRAPPER:
-        # "auto"/"sandbox" versions resolve via `which`; accept our own wrapper
-        # (re-run), refuse to wrap a real binary in place.
-        current = await sbox.read_file(OPENCODE_WRAPPER)
-        if WRAPPER_MARKER not in current:
-            raise RuntimeError(
-                f"opencode is installed at {OPENCODE_WRAPPER}; agenteval needs that path "
-                "for its sandbox wrapper. Pin a version in the harness profile instead."
-            )
-    else:
-        await install_root_file(sbox, OPENCODE_WRAPPER, render_wrapper(binary), "0755")
-
-    found = await sbox.exec(["bash", "-c", "command -v opencode"], user=run_user)
-    if not found.success or found.stdout.strip() != OPENCODE_WRAPPER:
-        raise RuntimeError(
-            f"`command -v opencode` as '{run_user}' resolves to "
-            f"{found.stdout.strip() or '<nothing>'}, expected {OPENCODE_WRAPPER}"
-        )
+    await install_wrapper(
+        sbox,
+        command="opencode",
+        binary=binary,
+        wrapper=OPENCODE_WRAPPER,
+        marker=WRAPPER_MARKER,
+        render=render_wrapper,
+        run_user=run_user,
+    )
     return binary, list(dep_dirs)
 
 
