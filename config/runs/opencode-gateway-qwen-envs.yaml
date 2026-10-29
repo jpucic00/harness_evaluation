@@ -1,0 +1,15 @@
+# yaml-language-server: $schema=../schema/run.schema.json
+description: OpenCode + gateway Qwen with the bubblewrap inner sandbox across Tart, Docker and Docker Sandboxes
+models: [gateway-qwen]
+harnesses: [opencode-bwrap]
+environments: [tart-ubuntu, docker-ubuntu, sbx-ubuntu]
+suites:
+  - containment
+  - capability
+  - name: injection
+    options:
+      limit: 12        # CodeIPI has 45 samples; raise once run times are known
+epochs: 1
+limits:
+  time_limit: 900      # seconds per sample
+  token_limit: 600000
