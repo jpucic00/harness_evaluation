@@ -30,24 +30,46 @@ is still in progress.
 from __future__ import annotations
 
 import hashlib
+import json
 import os
 import re
 import shutil
 import subprocess
+import sys
 import tempfile
 from collections.abc import Sequence
 from pathlib import Path
-from typing import Any, Literal
+from typing import TYPE_CHECKING, Any, Literal
 
 import yaml
 
-from agenteval.config import DockerSettings, EnvironmentProfile
+from agenteval.config import ConfigError, DockerSettings, EnvironmentProfile, ProfileSet
 from agenteval.constants import COLLECTOR_HOST
-from agenteval.environments import PROVISION_DIR
+from agenteval.environments.base import (
+    PROVISION_DIR,
+    CommandRunner,
+    DoctorCheck,
+    Echo,
+    Provider,
+    Status,
+    first_line,
+    inspect_cmd,
+)
+
+if TYPE_CHECKING:
+    from inspect_ai.util import SandboxEnvironmentSpec
 
 COMPOSE_DIR = Path(".agenteval") / "compose"
 """Generated compose files, relative to the current directory (gitignored)."""
 SERVICE = "default"
+
+# Path fragment of the compose files written here; used to pick out agenteval's Docker
+# projects among all Inspect compose projects.
+COMPOSE_DIR_MARKER = "/.agenteval/compose/"
+
+# Ubuntu 23.10+ hosts: 1 = unconfined processes (containers included) get no capabilities
+# in new user namespaces, which breaks bubblewrap in Docker containers.
+USERNS_RESTRICT_SYSCTL = Path("/proc/sys/kernel/apparmor_restrict_unprivileged_userns")
 
 InnerSandboxType = Literal["none", "bwrap"]
 
@@ -259,3 +281,143 @@ def build_image(
     result = subprocess.run([docker, *cmd[1:]], check=False)
     if result.returncode != 0:
         raise DockerError(f"docker build failed with exit code {result.returncode}")
+
+
+# --------------------------------------------------------------------------- cleanup
+
+
+def agenteval_docker_projects(runner: CommandRunner) -> list[str]:
+    """Inspect compose projects created from agenteval's generated compose files."""
+    code, out = runner(["docker", "compose", "ls", "--all", "--format", "json"], 30)
+    if code != 0:
+        raise ConfigError(f"docker compose ls failed: {out}")
+    try:
+        projects = json.loads(out or "[]")
+    except json.JSONDecodeError as ex:
+        raise ConfigError(f"docker compose ls: unexpected output: {ex}") from ex
+    names: list[str] = []
+    for project in projects if isinstance(projects, list) else []:
+        if not isinstance(project, dict):
+            continue
+        name, config_files = project.get("Name"), project.get("ConfigFiles")
+        if isinstance(name, str) and isinstance(config_files, str):
+            if COMPOSE_DIR_MARKER in config_files.replace("\\", "/"):
+                names.append(name)
+    return names
+
+
+# --------------------------------------------------------------------------- doctor
+
+
+def userns_restriction_check(docker_envs: Sequence[str], sysctl: Path | None = None) -> DoctorCheck:
+    """Linux Docker hosts that restrict unprivileged user namespaces break bwrap cells."""
+    name = "docker bwrap userns"
+    sysctl = sysctl or USERNS_RESTRICT_SYSCTL
+    try:
+        value = sysctl.read_text().strip()
+    except OSError:
+        return DoctorCheck(name, "ok", f"{sysctl} not present (no AppArmor userns restriction)")
+    if value != "1":
+        return DoctorCheck(name, "ok", f"kernel.apparmor_restrict_unprivileged_userns={value}")
+    return DoctorCheck(
+        name,
+        "warn",
+        "kernel.apparmor_restrict_unprivileged_userns=1 on this host: bwrap cells in "
+        f"{', '.join(docker_envs)} fail closed unless the host has an AppArmor profile "
+        "granting userns to /usr/bin/bwrap, the sysctl is 0, or the environment uses "
+        "runtime: runsc",
+    )
+
+
+# --------------------------------------------------------------------------- provider
+
+
+class DockerProvider(Provider):
+    name = "docker"
+    cleanup_last = True  # lists compose projects first and stops when that fails
+
+    def spec(
+        self,
+        env: EnvironmentProfile,
+        *,
+        inner_sandbox: InnerSandboxType,
+        mounts: Sequence[str],
+        filtered_network: bool,
+    ) -> SandboxEnvironmentSpec:
+        from inspect_ai.util import SandboxEnvironmentSpec
+
+        path = write_compose_file(
+            env, inner_sandbox=inner_sandbox, mounts=mounts, filtered_network=filtered_network
+        )
+        return SandboxEnvironmentSpec("docker", path.as_posix())
+
+    def image_label(self, env: EnvironmentProfile) -> str:
+        if env.docker is None:
+            return "-"
+        return env.docker.image + (f" (runtime {env.docker.runtime})" if env.docker.runtime else "")
+
+    def identity(self, env: EnvironmentProfile) -> dict[str, str | None]:
+        if env.docker is None:
+            return {}
+        return {"image": env.docker.image, "image_id": image_id(env.docker.image)}
+
+    def build(self, env: EnvironmentProfile, *, force: bool) -> None:
+        build_image(env, force=force)
+
+    def cleanup(self, echo: Echo, runner: CommandRunner) -> int:
+        if not shutil.which("docker"):
+            echo("docker: not installed, skipped")
+            return 0
+        try:
+            projects = agenteval_docker_projects(runner)
+        except ConfigError as ex:
+            echo(f"docker: {ex}")
+            return 1
+        if not projects:
+            echo("docker: no agenteval compose projects")
+        code = 0
+        for name in projects:
+            echo(f"docker: removing compose project {name}")
+            rc, out = runner(inspect_cmd("sandbox", "cleanup", "docker", name), 300)
+            if rc:
+                echo(out)
+                code = 1
+        return code
+
+    def tool_checks(self, runner: CommandRunner, problem: Status) -> tuple[bool, list[DoctorCheck]]:
+        if not shutil.which("docker"):
+            return False, [DoctorCheck("docker", problem, "not on PATH")]
+        rc, out = runner(["docker", "info", "--format", "{{.ServerVersion}}"], 20)
+        detail = (
+            f"daemon {first_line(out)}" if rc == 0 else f"daemon not reachable: {first_line(out)}"
+        )
+        return rc == 0, [DoctorCheck("docker", "ok" if rc == 0 else problem, detail)]
+
+    def env_checks(
+        self, env: EnvironmentProfile, runner: CommandRunner, problem: Status
+    ) -> list[DoctorCheck]:
+        if env.docker is None:
+            return []
+        rc, _ = runner(["docker", "image", "inspect", "--format", "{{.Id}}", env.docker.image], 20)
+        return [
+            DoctorCheck(
+                f"env {env.name}",
+                "ok" if rc == 0 else problem,
+                f"image {env.docker.image} "
+                + ("present" if rc == 0 else f"missing (agenteval env build {env.name})"),
+            )
+        ]
+
+    def host_checks(
+        self, environments: Sequence[EnvironmentProfile], profiles: ProfileSet
+    ) -> list[DoctorCheck]:
+        if not sys.platform.startswith("linux") or not any(
+            h.inner_sandbox.type == "bwrap" for h in profiles.harnesses.values()
+        ):
+            return []
+        runc_envs = [
+            e.name
+            for e in environments
+            if e.provider == "docker" and e.docker is not None and not e.docker.runtime
+        ]
+        return [userns_restriction_check(runc_envs)] if runc_envs else []

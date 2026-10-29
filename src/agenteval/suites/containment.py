@@ -29,10 +29,11 @@ from inspect_ai.solver import Generate, Solver, TaskState, solver
 from inspect_ai.util import sandbox
 
 from agenteval import constants
+from agenteval.cases import load_containment_checks
 from agenteval.config import MatrixCell
 from agenteval.models import build_model
-from agenteval.sandbox_scripts.probe import STATUSES, Check, load_checks
-from agenteval.suites.common import (
+from agenteval.sandbox_scripts.probe import STATUSES, Check
+from agenteval.suites.setup import (
     PYTHON,
     STORE_EGRESS,
     STORE_SAMPLE,
@@ -49,7 +50,7 @@ proxy-only network it builds for the agent (nothing listens there)."""
 
 def containment_checks() -> list[Check]:
     """The check files in ``cases/containment/`` (loaded host-side for ids and metadata)."""
-    return load_checks(str(constants.cases_dir() / "containment"))
+    return load_containment_checks()
 
 
 def write_check_ids() -> tuple[str, ...]:

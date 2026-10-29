@@ -48,7 +48,7 @@ from agenteval.dev.task import (
     build_dev_task,
 )
 from agenteval.report.economics import TokenUsage
-from agenteval.runner import register_model_prices
+from agenteval.run.execute import register_model_prices
 
 
 def _pick[T](found: dict[str, T], name: str, kind: str) -> T:

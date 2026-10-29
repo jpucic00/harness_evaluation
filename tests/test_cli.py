@@ -1,4 +1,4 @@
-"""CLI + runner tests. No real sandboxes, no paid models: suites and reports are stubbed."""
+"""CLI, run, doctor and environment tests. No real sandboxes, no paid models: suites are stubbed."""
 
 from __future__ import annotations
 
@@ -25,7 +25,8 @@ from inspect_ai.model._model_info import clear_model_info_cache
 from inspect_ai.scorer import match
 from inspect_ai.solver import Generate, Solver, TaskState, generate, solver
 
-from agenteval import environments, runner
+from agenteval import doctor as host_doctor
+from agenteval import environments
 from agenteval.cli import main
 from agenteval.config import (
     ConfigError,
@@ -36,6 +37,10 @@ from agenteval.config import (
     TartSettings,
     load_run,
 )
+from agenteval.environments.tart import provider as tart_provider
+from agenteval.report import serve
+from agenteval.run import execute as run_execute
+from agenteval.run import plan as run_plan
 
 REPO = Path(__file__).resolve().parents[1]
 CONFIG = REPO / "config"
@@ -313,14 +318,14 @@ def test_run_keeps_failed_attempts_and_records_image_identity(
     monkeypatch.setattr(
         "agenteval.environments.docker.image_id", lambda image: f"sha256:id-of-{image}"
     )
-    plan = runner.plan_run(
+    plan = run_plan.plan_run(
         "smoke-docker",
         config_dir=CONFIG,
         suites=["containment"],
         harnesses=["opencode-none"],
         run_id="meta",
     )
-    assert runner.execute_run(plan, report=False, echo=lambda _: None) == 0
+    assert run_execute.execute_run(plan, report=False, echo=lambda _: None) == 0
     (call,) = calls
     assert call["retry_cleanup"] is False
     assert call["retry_attempts"] == plan.run.retry_attempts
@@ -341,11 +346,11 @@ def test_run_keeps_failed_attempts_and_records_image_identity(
 
 def test_environment_identity_tart() -> None:
     env = EnvironmentProfile(name="vm", provider="tart")
-    identity = runner.environment_identity(env)
+    identity = environments.environment_identity(env)
     assert identity["provider"] == "tart"
     assert identity["image"] == "agenteval-ubuntu-24.04"
     assert identity["base_image"] == "ghcr.io/cirruslabs/ubuntu:24.04"
-    assert identity["provision_sha256"] == runner.provision_sha256()
+    assert identity["provision_sha256"] == environments.provision_sha256()
     assert "password" not in json.dumps(identity)
 
 
@@ -356,16 +361,16 @@ def test_view_hint_names_custom_log_dir(tmp_path: Path, monkeypatch: pytest.Monk
         "environments: [docker-ubuntu]\nsuites: [containment]\n"
         "log_dir: /data/agent logs\n"
     )
-    plan = runner.plan_run(run_file, config_dir=CONFIG, run_id="r1")
-    assert runner.view_hint(plan) == "agenteval view r1 --log-dir '/data/agent logs'"
-    default = runner.plan_run("smoke-docker", config_dir=CONFIG, run_id="r2")
-    assert runner.view_hint(default) == "agenteval view r2"
+    plan = run_plan.plan_run(run_file, config_dir=CONFIG, run_id="r1")
+    assert run_execute.view_hint(plan) == "agenteval view r1 --log-dir '/data/agent logs'"
+    default = run_plan.plan_run("smoke-docker", config_dir=CONFIG, run_id="r2")
+    assert run_execute.view_hint(default) == "agenteval view r2"
 
     _capture_eval_set(monkeypatch)
     monkeypatch.setattr("agenteval.suites.build_task", lambda cell: cell.task_name, raising=False)
-    monkeypatch.setattr(runner.RunPlan, "log_dir", property(lambda self: tmp_path / "logs"))
+    monkeypatch.setattr(run_plan.RunPlan, "log_dir", property(lambda self: tmp_path / "logs"))
     messages: list[str] = []
-    runner.execute_run(plan, report=False, echo=messages.append)
+    run_execute.execute_run(plan, report=False, echo=messages.append)
     assert messages[-1] == "view transcripts: agenteval view r1 --log-dir '/data/agent logs'"
 
 
@@ -517,7 +522,7 @@ def _make_report(root: Path, run_id: str, mtime: float) -> Path:
 def test_report_open_prints_path_when_open_unavailable(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setattr(runner, "open_path", lambda path: False)
+    monkeypatch.setattr(serve, "open_path", lambda path: False)
     reports = tmp_path / "reports"
     _make_report(reports, "zz-old", 1_000)
     newest = _make_report(reports, "aa-new", 2_000)
@@ -540,7 +545,7 @@ def test_report_open_uses_open_on_macos(tmp_path: Path, monkeypatch: pytest.Monk
         opened.append(path)
         return True
 
-    monkeypatch.setattr(runner, "open_path", fake_open)
+    monkeypatch.setattr(serve, "open_path", fake_open)
     _make_report(tmp_path / "reports", "r1", 1_000)
     result = invoke("report", "open", "r1")
     assert result.exit_code == 0 and result.output == ""
@@ -556,7 +561,7 @@ def test_report_open_without_reports() -> None:
 def test_report_server_is_local_only(tmp_path: Path) -> None:
     (tmp_path / "reports").mkdir()
     (tmp_path / "reports" / "index.html").write_text("hello report")
-    server = runner.make_report_server(tmp_path / "reports", 0)
+    server = serve.make_report_server(tmp_path / "reports", 0)
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
     try:
@@ -570,7 +575,7 @@ def test_report_server_is_local_only(tmp_path: Path) -> None:
         server.shutdown()
         server.server_close()
     with pytest.raises(ConfigError):
-        runner.make_report_server(tmp_path / "missing", 0)
+        serve.make_report_server(tmp_path / "missing", 0)
 
 
 # --------------------------------------------------------------------------- view
@@ -608,9 +613,7 @@ def test_env_build_docker(monkeypatch: pytest.MonkeyPatch) -> None:
     def build_image(env: EnvironmentProfile, *, force: bool = False) -> None:
         built.append((env.name, force))
 
-    fake = types.ModuleType("agenteval.environments.docker")
-    fake.build_image = build_image  # type: ignore[attr-defined]
-    monkeypatch.setitem(sys.modules, "agenteval.environments.docker", fake)
+    monkeypatch.setattr(environments.docker, "build_image", build_image)
     result = invoke("env", "build", "docker-ubuntu", "--force")
     assert result.exit_code == 0, result.output
     assert built == [("docker-ubuntu", True)]
@@ -622,9 +625,7 @@ def test_env_build_failure_is_clean_error(monkeypatch: pytest.MonkeyPatch) -> No
     def build_image(env: EnvironmentProfile, *, force: bool = False) -> None:
         raise RuntimeError("docker build failed with exit code 1")
 
-    fake = types.ModuleType("agenteval.environments.docker")
-    fake.build_image = build_image  # type: ignore[attr-defined]
-    monkeypatch.setitem(sys.modules, "agenteval.environments.docker", fake)
+    monkeypatch.setattr(environments.docker, "build_image", build_image)
     result = invoke("env", "build", "docker-ubuntu")
     assert result.exit_code == 1
     assert "build failed: RuntimeError: docker build failed with exit code 1" in result.output
@@ -655,7 +656,7 @@ def test_env_build_tart(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None
     assert calls == [("agenteval-ubuntu-24.04", script, True, "agent", "/workspace")]
 
     custom = EnvironmentProfile(name="vm", provider="tart", agent_user="dev", workspace="/work")
-    runner.build_environment(custom)
+    environments.build_environment(custom)
     assert calls[-1] == ("agenteval-ubuntu-24.04", script, False, "dev", "/work")
 
 
@@ -692,7 +693,7 @@ def test_cleanup_targets_only_agenteval_projects(monkeypatch: pytest.MonkeyPatch
     ]
     commands = FakeCommands({"docker compose ls": (0, json.dumps(projects))})
     messages: list[str] = []
-    assert runner.cleanup_environments(echo=messages.append, runner=commands) == 0
+    assert environments.cleanup_environments(echo=messages.append, runner=commands) == 0
     inspect_calls = [c[3:] for c in commands.calls if c[:3] == [sys.executable, "-m", "inspect_ai"]]
     assert inspect_calls == [
         ["sandbox", "cleanup", "tart"],
@@ -705,7 +706,7 @@ def test_cleanup_reports_docker_errors(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(shutil, "which", lambda name: None if name == "tart" else name)
     commands = FakeCommands({"docker compose ls": (1, "daemon down")})
     messages: list[str] = []
-    assert runner.cleanup_environments(echo=messages.append, runner=commands) == 1
+    assert environments.cleanup_environments(echo=messages.append, runner=commands) == 1
     assert any("daemon down" in m for m in messages)
     assert "tart: not installed, skipped" in messages
 
@@ -740,7 +741,7 @@ def test_doctor_reads_dotenv_without_printing_values(
 def test_doctor_tart_install_hint(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(sys, "platform", "darwin")
     monkeypatch.setattr(shutil, "which", lambda name: None)
-    checks = runner.doctor(CONFIG, "tart-ubuntu", runner=FakeCommands({}))
+    checks = host_doctor.doctor(CONFIG, "tart-ubuntu", runner=FakeCommands({}))
     tart = {c.name: c for c in checks}["tart"]
     assert tart.status == "fail"
     assert "https://github.com/openai/tart/releases" in tart.detail
@@ -757,7 +758,7 @@ def _write_lease_plist(path: Path, lease: int | None) -> Path:
     ("lease", "status"), [(None, "warn"), (86_400, "warn"), (172_800, "warn"), (600, "ok")]
 )
 def test_dhcp_lease_check(tmp_path: Path, lease: int | None, status: str) -> None:
-    check = runner.dhcp_lease_check(_write_lease_plist(tmp_path / "is.plist", lease))
+    check = tart_provider.dhcp_lease_check(_write_lease_plist(tmp_path / "is.plist", lease))
     assert check.status == status
     if status == "warn":
         assert (
@@ -768,7 +769,7 @@ def test_dhcp_lease_check(tmp_path: Path, lease: int | None, status: str) -> Non
 
 
 def test_dhcp_lease_check_missing_plist_warns(tmp_path: Path) -> None:
-    check = runner.dhcp_lease_check(tmp_path / "missing.plist")
+    check = tart_provider.dhcp_lease_check(tmp_path / "missing.plist")
     assert check.status == "warn" and "86400" in check.detail
 
 
@@ -779,9 +780,11 @@ def test_doctor_warns_about_dhcp_leases_for_tart_nat(
     monkeypatch.setattr(shutil, "which", lambda name: None)
     plist = _write_lease_plist(tmp_path / "is.plist", None)
     monkeypatch.setattr("agenteval.environments.tart.image.DHCP_PLIST", plist)
-    by_name = {c.name: c for c in runner.doctor(CONFIG, "tart-ubuntu", runner=FakeCommands({}))}
+    by_name = {
+        c.name: c for c in host_doctor.doctor(CONFIG, "tart-ubuntu", runner=FakeCommands({}))
+    }
     assert by_name["tart dhcp lease"].status == "warn"
-    docker_only = runner.doctor(CONFIG, "docker-ubuntu", runner=FakeCommands({}))
+    docker_only = host_doctor.doctor(CONFIG, "docker-ubuntu", runner=FakeCommands({}))
     assert "tart dhcp lease" not in {c.name for c in docker_only}
 
 
@@ -792,10 +795,12 @@ def test_doctor_linux_userns_restriction(
     sysctl = tmp_path / "apparmor_restrict_unprivileged_userns"
     if value is not None:
         sysctl.write_text(value + "\n")
-    monkeypatch.setattr(runner, "USERNS_RESTRICT_SYSCTL", sysctl)
+    monkeypatch.setattr(environments.docker, "USERNS_RESTRICT_SYSCTL", sysctl)
     monkeypatch.setattr(sys, "platform", "linux")
     monkeypatch.setattr(shutil, "which", lambda name: None)
-    by_name = {c.name: c for c in runner.doctor(CONFIG, "docker-ubuntu", runner=FakeCommands({}))}
+    by_name = {
+        c.name: c for c in host_doctor.doctor(CONFIG, "docker-ubuntu", runner=FakeCommands({}))
+    }
     check = by_name["docker bwrap userns"]
     assert check.status == status
     if status == "warn":
@@ -811,7 +816,7 @@ def test_doctor_userns_check_skips_other_runtimes(
     env_file.write_text(env_file.read_text().replace("runtime: null", "runtime: runsc"))
     monkeypatch.setattr(sys, "platform", "linux")
     monkeypatch.setattr(shutil, "which", lambda name: None)
-    names = {c.name for c in runner.doctor(config, "docker-ubuntu", runner=FakeCommands({}))}
+    names = {c.name for c in host_doctor.doctor(config, "docker-ubuntu", runner=FakeCommands({}))}
     assert "docker bwrap userns" not in names
 
 
@@ -820,7 +825,7 @@ def test_doctor_selected_env_problems_fail(monkeypatch: pytest.MonkeyPatch) -> N
     commands = FakeCommands(
         {"docker info": (0, "29.0.0"), "docker image inspect": (1, "No such image")}
     )
-    checks = runner.doctor(CONFIG, "docker-ubuntu", runner=commands)
+    checks = host_doctor.doctor(CONFIG, "docker-ubuntu", runner=commands)
     by_name = {c.name: c for c in checks}
     assert by_name["docker"].status == "ok"
     assert by_name["env docker-ubuntu"].status == "fail"
@@ -838,11 +843,11 @@ def test_doctor_tart_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Non
     key.parent.mkdir(parents=True)
     key.write_text("fake")
     key.chmod(0o644)
-    checks = runner.doctor(
-        CONFIG,
-        "tart-ubuntu",
-        runner=FakeCommands({"tart --version": (0, "2.30.0")}),
-        tart_image_exists=lambda name: name == "agenteval-ubuntu-24.04",
+    monkeypatch.setattr(
+        tart_provider, "image_exists", lambda name: name == "agenteval-ubuntu-24.04"
+    )
+    checks = host_doctor.doctor(
+        CONFIG, "tart-ubuntu", runner=FakeCommands({"tart --version": (0, "2.30.0")})
     )
     by_name = {c.name: c for c in checks}
     assert by_name["tart"].status == "ok"
@@ -850,37 +855,39 @@ def test_doctor_tart_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Non
     assert by_name["env tart-ubuntu ssh key"].status == "warn"
 
 
-# --------------------------------------------------------------------------- runner units
+# --------------------------------------------------------------------------- run units
 
 
 def test_make_run_id() -> None:
     now = datetime(2026, 10, 18, 7, 5, 9, tzinfo=UTC)
-    assert runner.make_run_id("smoke-docker", now) == "20261018T070509Z-smoke-docker"
-    assert runner.make_run_id("a b/../c", now) == "20261018T070509Z-a-b-..-c"
-    assert runner.validate_run_id(runner.make_run_id("../..", now))
+    assert run_plan.make_run_id("smoke-docker", now) == "20261018T070509Z-smoke-docker"
+    assert run_plan.make_run_id("a b/../c", now) == "20261018T070509Z-a-b-..-c"
+    assert run_plan.validate_run_id(run_plan.make_run_id("../..", now))
 
 
 @pytest.mark.parametrize("bad", ["", "..", "a/b", "-x", "x" * 129, "a b"])
 def test_validate_run_id_rejects(bad: str) -> None:
     with pytest.raises(ConfigError):
-        runner.validate_run_id(bad)
+        run_plan.validate_run_id(bad)
 
 
 def test_apply_overrides_validates_suites() -> None:
     run = load_run(CONFIG / "runs" / "smoke-docker.yaml")
-    same = runner.apply_overrides(run)
+    same = run_plan.apply_overrides(run)
     assert same == run
-    narrowed = runner.apply_overrides(run, suites=["injection", "injection"], models=["mock"])
+    narrowed = run_plan.apply_overrides(run, suites=["injection", "injection"], models=["mock"])
     assert [s.name for s in narrowed.suites] == ["injection"]
     assert narrowed.suites[0].options == {"limit": 2}
     with pytest.raises(ConfigError):
-        runner.apply_overrides(run, suites=["bogus"])
+        run_plan.apply_overrides(run, suites=["bogus"])
 
 
 def test_resolve_run_file_by_name_or_path() -> None:
-    assert runner.resolve_run_file("smoke-docker", CONFIG) == CONFIG / "runs" / "smoke-docker.yaml"
+    assert (
+        run_plan.resolve_run_file("smoke-docker", CONFIG) == CONFIG / "runs" / "smoke-docker.yaml"
+    )
     path = CONFIG / "runs" / "opencode-qwen-tart.yaml"
-    assert runner.resolve_run_file(str(path), CONFIG) == path
+    assert run_plan.resolve_run_file(str(path), CONFIG) == path
 
 
 def test_register_model_prices() -> None:
@@ -890,7 +897,7 @@ def test_register_model_prices() -> None:
         pricing=Pricing(input=1.5, output=3.0, input_cache_read=0.1),
     )
     unpriced = ModelProfile(name="free", inspect_model="mockllm/free")
-    notes = runner.register_model_prices([priced, unpriced])
+    notes = run_execute.register_model_prices([priced, unpriced])
     assert notes == ["model 'free': no pricing configured; cost is not tracked"]
     info = get_model_info("mockllm/priced")
     assert info is not None and info.cost is not None
@@ -902,7 +909,7 @@ def test_register_model_prices_never_prices_cache_tokens_at_zero_by_default() ->
     model = ModelProfile(
         name="m", inspect_model="mockllm/cache", pricing=Pricing(input=0.24, output=2.2)
     )
-    runner.register_model_prices([model])
+    run_execute.register_model_prices([model])
     info = get_model_info("mockllm/cache")
     assert info is not None and info.cost is not None
     assert (info.cost.input_cache_read, info.cost.input_cache_write) == (0.24, 0.24)
@@ -911,7 +918,7 @@ def test_register_model_prices_never_prices_cache_tokens_at_zero_by_default() ->
         inspect_model="mockllm/zero",
         pricing=Pricing(input=1, output=2, input_cache_read=0, input_cache_write=0),
     )
-    runner.register_model_prices([explicit])
+    run_execute.register_model_prices([explicit])
     zero = get_model_info("mockllm/zero")
     assert zero is not None and zero.cost is not None
     assert (zero.cost.input_cache_read, zero.cost.input_cache_write) == (0, 0)
@@ -943,10 +950,10 @@ def test_risk_warnings_flag_real_model_injection_in_relaxed_docker() -> None:
             limits=Limits(),
         )
 
-    assert len(runner.risk_warnings([cell("openrouter/qwen/x", "bwrap")])) == 1
-    assert runner.risk_warnings([cell("mockllm/model", "bwrap")]) == []
-    assert runner.risk_warnings([cell("openrouter/qwen/x", "none")]) == []
-    assert runner.risk_warnings([cell("openrouter/qwen/x", "bwrap", runtime="runsc")]) == []
+    assert len(run_execute.risk_warnings([cell("openrouter/qwen/x", "bwrap")])) == 1
+    assert run_execute.risk_warnings([cell("mockllm/model", "bwrap")]) == []
+    assert run_execute.risk_warnings([cell("openrouter/qwen/x", "none")]) == []
+    assert run_execute.risk_warnings([cell("openrouter/qwen/x", "bwrap", runtime="runsc")]) == []
 
 
 # --------------------------------------------------------------------------- dev

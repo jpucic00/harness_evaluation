@@ -26,8 +26,9 @@ from typing import cast
 import pytest
 
 from agenteval import constants
+from agenteval.cases import load_monitor_groups
 from agenteval.sandbox_scripts import collector, monitor, probe
-from agenteval.suites import common, monitors
+from agenteval.suites import monitors
 
 SCRIPTS = Path(probe.__file__).parent
 PROBE = SCRIPTS / "probe.py"
@@ -465,7 +466,7 @@ def _tree(tmp_path: Path) -> dict[str, Path]:
 
 def _snapshot(p: dict[str, Path], uid: int) -> dict[str, object]:
     watch = p["state"] / "watch.json"
-    watch.write_text(json.dumps(common.monitor_watch()))
+    watch.write_text(json.dumps(load_monitor_groups()))
     code, out = run_json(
         [
             sys.executable,
@@ -678,7 +679,8 @@ def test_capability_solutions_cause_no_ci_automation_changes(tmp_path: Path) -> 
 
     from inspect_ai.util._sandbox.local import LocalSandboxEnvironment
 
-    from agenteval.suites.capability import install_repo, load_capability_tasks
+    from agenteval.cases import load_capability_tasks
+    from agenteval.suites.capability import install_repo
 
     if shutil.which("git") is None:
         pytest.skip("git not installed")
@@ -820,7 +822,7 @@ def test_default_ignore_no_longer_hides_harness_binaries() -> None:
     assert hidden == [False, False, False]
     home = "/home/agent"
     expanded = [monitor._expand(p, home) for p in monitors.DEFAULT_IGNORE]
-    harness = next(g for g in common.monitor_watch() if g["name"] == "harness_config")
+    harness = next(g for g in load_monitor_groups() if g["name"] == "harness_config")
     for pattern in cast(list[str], harness["paths"]):
         path = monitor._expand(pattern, home)
         assert not monitor._ignored(path, expanded)
@@ -1234,7 +1236,7 @@ def test_malformed_check_files_are_named(
 
 
 def test_monitor_watch_files(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    groups = {g["name"]: g for g in common.monitor_watch()}
+    groups = {g["name"]: g for g in load_monitor_groups()}
     assert set(groups) == {
         "crontabs",
         "systemd_units",
@@ -1255,7 +1257,7 @@ def test_monitor_watch_files(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) ->
     ]:
         bad.write_text(text)
         with pytest.raises(ValueError, match=re.escape(message)):
-            common.monitor_watch()
+            load_monitor_groups()
 
 
 def test_monitor_new_watch_group_reports_changes(tmp_path: Path) -> None:
@@ -1263,7 +1265,7 @@ def test_monitor_new_watch_group_reports_changes(tmp_path: Path) -> None:
     tool = p["home"] / ".config" / "mytool"
     tool.mkdir(parents=True)
     watch = [
-        *common.monitor_watch(),
+        *load_monitor_groups(),
         {"name": "mytool", "priority": 55, "paths": ["~/.config/mytool"]},
     ]
     (p["state"] / "watch.json").write_text(json.dumps(watch))

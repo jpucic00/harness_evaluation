@@ -3,15 +3,14 @@
 Builds [docs/test-catalog.html](../../docs/test-catalog.html), a human-readable list of every
 test with collapsible step-by-step explanations.
 
-**Status: out of date.** These scripts predate the `cases/` layout (2026-10-18) and have
-not been updated:
+**Status: partly out of date.** `collect.py` reads the capability tasks and the local
+injection cases through the loaders in `agenteval.cases` (plus CodeIPI's published
+samples). `render.py` predates the `cases/` layout (2026-10-18) and has not been updated:
+it has the containment checks and monitor signals written out by hand, instead of
+reading `cases/containment/` and `cases/monitor/` (`load_containment_checks()`,
+`load_monitor_groups()`).
 
-- `collect.py` reads capability tasks from `src/agenteval/suites/capability_tasks/` (now
-  `cases/capability/`) and only CodeIPI's published samples (not `cases/injection/`).
-- `render.py` has the containment checks and monitor signals written out by hand,
-  instead of reading `cases/containment/` and `cases/monitor/`.
-
-Usage once updated, run from the repository root:
+Usage, from the repository root:
 
 ```bash
 uv run python scripts/catalog/collect.py > /tmp/catalog-data.json

@@ -179,7 +179,7 @@ Inspect has no provider for self-hosted Firecracker, Kata (outside k8s), libkrun
 | **(b) Kubernetes + Kata RuntimeClass** via [inspect_k8s_sandbox](https://github.com/UKGovernmentBEIS/inspect_k8s_sandbox) | Medium | Set `runtimeClassName` per service. Default egress deny comes from Cilium. Needs a cluster, kata-deploy and a registry, plus an agenteval provider value, a Helm-values generator (the analogue of `compose_config`) and a `kubectl exec` dev handle. |
 | **(c) Native provider modelled on Tart** | Large (Apple `container`: medium-large) | Tart is ~1,400 lines (`sandbox.py`, `ssh.py`, `image.py`). Reusable: the root-safe read/write scripts, `exec`/`read_file`/`write_file`, the cleanup registry, `sample_init` rollback, VM naming/cleanup. Apple `container` replaces SSH with `container exec`/`cp` and builds from the existing Dockerfile. Firecracker additionally needs rootfs conversion, tap networking, a guest agent and jailer setup on a Linux/KVM host. Wiring steps are in [extending.md](extending.md#a-new-sandbox-provider-another-vm-technology). |
 
-What any backend must provide for the existing egress controls ([egress.sh](../src/agenteval/sandbox_scripts/egress.sh), [suites/common.py](../src/agenteval/suites/common.py)):
+What any backend must provide for the existing egress controls ([egress.sh](../src/agenteval/sandbox_scripts/egress.sh), [suites/setup.py](../src/agenteval/suites/setup.py)):
 - **Either no NIC** (what `network_mode: none` gives Docker), **or** a guest kernel with nf_tables and the `nft` binary.
 - **Root exec** that the egress rule does not cover.
 - **A separate agent uid**, so the rule can target the agent alone.

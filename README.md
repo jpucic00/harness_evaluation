@@ -201,16 +201,18 @@ config/
                              each with a _template.yaml listing every key
   schema/                    JSON Schema of each kind, for editor completion (scripts/gen_config_schema.py)
 src/agenteval/
-  cli.py, runner.py          CLI (click) and the logic behind it
+  cli.py                     CLI (click)
+  run/                       agenteval run: planning and execution
+  doctor.py, profiles.py     agenteval doctor and agenteval profiles
   dev/                       agenteval dev: session task, repo transport, CLI config sync, review
   config.py, constants.py    profile schema; in-sandbox paths and names
   models.py                  Inspect model for a model profile, with its connection (proxy, TLS) settings
   _registry.py               Inspect entry point (registers the "tart" sandbox)
-  environments/              Docker compose generation, Tart sandbox provider, provisioning
+  environments/              provider registry; Docker, Tart and sbx providers; provisioning
   harnesses/                 OpenCode and Claude Code install + run, inner sandbox wrapper (sandbox-exec)
   sandbox_scripts/           probe runner, monitor, collector, egress policy, case runner, dev repo transport, pty relay and reasoning relay (run inside the env)
   suites/                    containment, capability, injection (CodeIPI + local cases), monitors: load cases/
-  report/                    log parsing, economics, HTML templates
+  report/                    log parsing, economics, HTML templates, opening and serving reports
 tests/                       unit tests (pytest)
 docs/                        setup, dev mode, architecture, security tests, extending, research notes
 logs/  reports/  .agenteval/ generated: eval and dev logs, HTML reports, compose files named by content hash, dev sessions (gitignored)

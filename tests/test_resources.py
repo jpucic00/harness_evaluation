@@ -263,7 +263,8 @@ def test_sampler_writes_meta_and_ticks(tmp_path: Path) -> None:
 
 
 def test_resource_sampler_off_when_interval_is_zero() -> None:
-    from agenteval.runner import RunPlan, resource_sampler
+    from agenteval.run.execute import resource_sampler
+    from agenteval.run.plan import RunPlan
 
     plan = cast(RunPlan, SimpleNamespace(run=SimpleNamespace(resource_interval=0.0)))
     assert isinstance(resource_sampler(plan), nullcontext)

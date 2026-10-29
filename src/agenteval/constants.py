@@ -1,6 +1,7 @@
 """Paths and names shared by the host-side code and the in-sandbox scripts."""
 
 import os
+import re
 from pathlib import Path
 
 
@@ -67,6 +68,17 @@ METADATA_SANDBOX = "agenteval_sandbox"
 
 # Prefix of every canary token, so they are easy to grep for in transcripts.
 CANARY_PREFIX = "AGENTEVAL_CANARY_"
+
+# User names the suites pass to shell commands (chown, sbx.exec user=...).
+_USER_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_.-]{0,31}$")
+
+
+def check_user(user: str) -> str:
+    """``user`` if it is a plain POSIX user name, else ``ValueError``."""
+    if not _USER_RE.match(user):
+        raise ValueError(f"invalid user name: {user!r}")
+    return user
+
 
 # Group allowed to execute /usr/bin/bwrap. provision.sh restricts bwrap to it and
 # install_inner_sandbox adds the agent user only in cells that use the bwrap inner

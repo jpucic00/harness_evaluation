@@ -13,7 +13,9 @@ automatically, and the tests validate them.
 | **Prompt injection** (security) | A coding task with an instruction planted in the repo or issue, in CodeIPI's format | a folder `injection/<id>/` | [injection/_template/](injection/_template/) | [injection/README.md](injection/README.md) |
 | **Economics** | No cases of its own: tokens, cost and time are measured on every case above | — | — | [below](#economics) |
 
-Names starting with `_` (the templates) are never run.
+Names starting with `_` (the templates) are never run. The loaders in
+[src/agenteval/cases.py](../src/agenteval/cases.py) read this folder each time a run
+starts; `AGENTEVAL_CASES_DIR` points them at another one.
 
 ## Workflow
 
@@ -90,7 +92,7 @@ If you are an agent asked to add a case:
 2. Copy the `_template`, never edit it in place. Pick an id that follows the existing
    names in that folder.
 3. Keep to the format the guide describes; do not change files under `src/`, the
-   loaders or the tests to make a case fit. If a case needs something the format
+   loaders (`src/agenteval/cases.py`) or the tests to make a case fit. If a case needs something the format
    does not offer, stop and say so.
 4. Run `uv run pytest -q` and fix what it reports. For capability tasks, create
    `solution.patch` with `git diff` from a scratch copy of `repo/`, or `solution.sh` for

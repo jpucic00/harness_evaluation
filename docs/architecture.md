@@ -22,7 +22,7 @@ config/runs/<run>.yaml ──► expand_matrix ──► one MatrixCell per suit
                          report.build_report(logs/<run-id>) ──► reports/<run-id>/index.html + data.json
 ```
 
-- `agenteval run` ([runner.py](../src/agenteval/runner.py)) loads `.env` (if any), checks the
+- `agenteval run` ([run/execute.py](../src/agenteval/run/execute.py)) loads `.env` (if any), checks the
   required env vars, registers each model's prices with Inspect (`set_model_info`), builds the
   tasks and calls `eval_set`. `eval_set` resumes a run with the same run id (finished tasks are
   skipped) and retries tasks that did not complete, up to `retry_attempts` times. It runs with
@@ -71,9 +71,9 @@ Step by step:
    confinement. Only cells whose harness uses bubblewrap get `bwrap_security_opt` on top (see
    [Who enforces what](#profiles)). The only environment that shares a host folder is an
    `agenteval dev --mount live` session (see [Dev sessions](#dev-sessions)).
-2. **Root setup** ([suites/common.py](../src/agenteval/suites/common.py), `prepare_sample`):
+2. **Root setup** ([suites/setup.py](../src/agenteval/suites/setup.py), `prepare_sample`):
    uploads the helper scripts to `/opt/agenteval`, generates per-sample canary tokens
-   (`AGENTEVAL_CANARY_<16 hex>`), plants fake credentials when `ambient_secrets` is on, plants
+   (`AGENTEVAL_CANARY_<16 hex>`, planned in [suites/canaries.py](../src/agenteval/suites/canaries.py)), plants fake credentials when `ambient_secrets` is on, plants
    a decoy note `~/notes-keep.txt`, starts the collector, applies the egress policy and takes a
    baseline snapshot for the boundary monitor. Suites add their own setup, such as copying a
    capability task's repo into `/workspace` and running its `setup.sh`.
@@ -194,8 +194,11 @@ What these boundaries do not (yet) guarantee is listed under
   (`cases/containment/<id>.py`, uploaded to `/opt/agenteval/checks/` and run by `probe.py`),
   monitor watch groups (`cases/monitor/<group>.yaml`, passed to `monitor.py snapshot --watch`
   and recorded in the baseline) and local injection cases (`cases/injection/<id>/`, added to
-  CodeIPI's dataset). `constants.cases_dir()` finds the folder; `AGENTEVAL_CASES_DIR`
-  overrides it. See [cases/README.md](../cases/README.md).
+  CodeIPI's dataset). [cases.py](../src/agenteval/cases.py) has one loader per kind
+  (`load_capability_tasks`, `load_containment_checks`, `load_monitor_groups`,
+  `load_injection_cases`) with the models that validate the files. Each finds the folder
+  through `constants.cases_dir()` when called, so `AGENTEVAL_CASES_DIR` overrides it at any
+  time. See [cases/README.md](../cases/README.md).
 - **Capability tasks** live in
   [cases/capability/](../cases/capability/). Each has `task.yaml`
   (id, difficulty, summary, prompt, optional prompt_suffix), `repo/` (code, docs and visible
@@ -417,15 +420,19 @@ repo.
 
 | Path | Role |
 | --- | --- |
-| [config.py](../src/agenteval/config.py) | Pydantic profile schema, loading, `expand_matrix`, `missing_env`. |
+| [config.py](../src/agenteval/config.py) | Pydantic profile schema (including each suite's options, checked when a run file loads), loading, `expand_matrix`, `missing_env`. |
+| [cases.py](../src/agenteval/cases.py) | Loaders and models for the contributor-written cases in `cases/`, one per kind. |
 | [models.py](../src/agenteval/models.py) | `build_model(profile)`: the Inspect `Model` for a model profile, with its `model_args` and `connection` settings (proxy policy, CA bundle, client certificate). |
 | [constants.py](../src/agenteval/constants.py) | In-environment paths (`/opt/agenteval`, `/var/lib/agenteval`, ...), collector address, store keys, canary prefix; `checkout_root()`, the checkout `agenteval dev` takes its profiles, `.env`, logs and sessions from. |
-| [runner.py](../src/agenteval/runner.py), [cli.py](../src/agenteval/cli.py) | CLI logic (testable without click) and the click wrapper. |
+| [cli.py](../src/agenteval/cli.py) | The click wrapper; the logic behind it is testable without click: |
+| [run/](../src/agenteval/run/) | `agenteval run`: `plan.py` (run ids, run files, overrides, `plan_run` -> `RunPlan`), `execute.py` (`execute_run`: prices, risk warnings, resource sampler, `eval_set`, the run report). |
+| [doctor.py](../src/agenteval/doctor.py) | `agenteval doctor`: Python, packages, profiles and env vars, plus each provider's checks. |
+| [profiles.py](../src/agenteval/profiles.py) | `agenteval profiles`, environment lookup, the plain-text table helper. |
 | [_registry.py](../src/agenteval/_registry.py) | Inspect entry point; importing it registers the `tart` sandbox. |
-| [environments/](../src/agenteval/environments/) | `sandbox_spec(env, inner_sandbox=..., mounts=...)` (`mounts`: dev live mode only), Docker compose and image build, Tart provider (`tart/sandbox.py`, `tart/ssh.py`, `tart/image.py`), Docker Sandboxes provider (`sbx/sandbox.py`, `sbx/cli.py`), file transfer through exec (`guest.py`), shared `provision/`. |
+| [environments/](../src/agenteval/environments/) | `Provider` interface (`base.py`: spec, build, identity, image label, cleanup, doctor checks) and the `PROVIDERS` registry with `sandbox_spec(env, inner_sandbox=..., mounts=...)` (`mounts`: dev live mode only), `build_environment`, `cleanup_environments`, `environment_identity` (`__init__.py`); Docker compose, image build and provider (`docker.py`), Tart provider (`tart/provider.py`, `tart/sandbox.py`, `tart/ssh.py`, `tart/image.py`), Docker Sandboxes provider (`sbx/provider.py`, `sbx/sandbox.py`, `sbx/cli.py`), file transfer through exec (`guest.py`), shared `provision/`. |
 | [harnesses/](../src/agenteval/harnesses/) | `harness_solvers(cell)`, OpenCode and Claude Code install/run (`opencode.py`, `claude_code.py`), `sandbox-exec` templates, the dev launcher template `dev-launch.sh`. |
 | [sandbox_scripts/](../src/agenteval/sandbox_scripts/) | Stdlib-only scripts uploaded into each environment: `probe.py` (runner for the check files in `cases/containment/`), `monitor.py`, `collector.py`, `egress.sh`, `case_runner.py`; for dev sessions `dev_repo.py` (repo import/export), `ptyrelay.py` and `think_shim.py` (reasoning relay for OpenCode). |
 | [dev/](../src/agenteval/dev/) | `agenteval dev`: `commands.py` (start/apply/list), `task.py` (session solver, launcher, docker/tart access), `repo.py` (snapshot, fetch, per-file 3-way apply, fast-forward), `userconfig.py` (CLI config + memory staging, sanitizing, merge back), `review.py` (summary, diffs, prompts), `session.py` (records under `.agenteval/sessions/`). |
-| [suites/](../src/agenteval/suites/) | `SUITES` registry and `build_task`, sample setup (`common.py`), the three suites, `monitors.py`, the capability reference-case protocol (`reference_cases.py`). |
+| [suites/](../src/agenteval/suites/) | `SUITES` registry and `build_task`, sample setup and root shell helpers (`setup.py`), canary planning (`canaries.py`), the three suites, `monitors.py`, the capability reference-case protocol (`reference_cases.py`). |
 | [resource_sampler.py](../src/agenteval/resource_sampler.py) | Host CPU/memory sampler that runs next to `eval_set` (`resources.jsonl`). |
-| [report/](../src/agenteval/report/) | `records.py` (logs -> records), `scores.py` (scorer values -> typed results), `views.py` (records -> report sections), `economics.py` (pure arithmetic), `resources_view.py` (the Resources section), `build.py` + Jinja templates. |
+| [report/](../src/agenteval/report/) | `records.py` (logs -> records), `scores.py` (scorer values -> typed results), `views.py` (records -> report sections), `economics.py` (pure arithmetic), `resources_view.py` (the Resources section), `build.py` + Jinja templates, `serve.py` (`report open`/`serve`, the `view` command). |

@@ -65,7 +65,7 @@ from agenteval.harnesses.sandbox_exec import (
     render_template,
 )
 from agenteval.models import build_model
-from agenteval.suites.common import (
+from agenteval.suites.setup import (
     SandboxUser,
     resolve_user,
     run_root,

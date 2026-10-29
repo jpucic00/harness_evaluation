@@ -18,7 +18,7 @@ from agenteval.dev import task
 from agenteval.dev.review import DevIO
 from agenteval.dev.task import DevSpec, DockerHandle, TartHandle
 from agenteval.environments.tart.ssh import SSHTarget
-from agenteval.suites.common import SandboxUser
+from agenteval.suites.setup import SandboxUser
 
 REPO = Path(__file__).resolve().parents[1]
 PROFILES = load_profiles(REPO / "config")

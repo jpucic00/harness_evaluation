@@ -8,9 +8,9 @@ Most extensions are a new YAML file. Some need code.
 | Another version or inner-sandbox variant of OpenCode | yes | none |
 | A new agent CLI (Codex CLI, ...) | no | `config.py`, `harnesses/`, `sandbox_exec.py`, `suites/monitors.py`, `dev/` |
 | A Docker variant (other runtime, limits, `security_opt`, `bwrap_security_opt`) | yes | none, but the runtime must be installed in Docker |
-| A new sandbox provider (another VM technology) | no | new provider module, `_registry.py`, `config.py`, `environments/__init__.py`, `runner.py`, `dev/task.py` |
+| A new sandbox provider (another VM technology) | no | new provider folder under `environments/`, `_registry.py`, `config.py`, `environments/__init__.py` (one registry entry), `dev/task.py` |
 | A capability task | data files | `tests/test_suites.py` (task count and list) |
-| A new suite | no | `suites/`, `config.py` (`SuiteName`), optionally `report/` |
+| A new suite | no | `suites/`, `config.py` (`SuiteName`, options model, `SUITE_OPTIONS`), optionally `report/` |
 | A run file | yes | none |
 
 All profiles live under `config/<kind>/<name>.yaml`. The profile name is the file name unless
@@ -336,13 +336,25 @@ template; both test against fake CLIs. File transfer and timeouts through `exec`
 3. In [config.py](../src/agenteval/config.py), add the name to `EnvironmentProfile.provider`, a
    settings model (like `TartSettings`), and its default and the mismatch check in
    `_provider_settings`. Regenerate `config/schema/` (see above).
-4. In [environments/\_\_init\_\_.py](../src/agenteval/environments/__init__.py), map the provider
-   to a `SandboxEnvironmentSpec` in `sandbox_spec`. It also receives the cell's
-   `inner_sandbox` type, for providers whose confinement must depend on it (as Docker's does),
-   and `mounts`: host folders that `agenteval dev --mount live` shares at the same path (a
-   bind mount for Docker, `tart run --dir` for Tart). Eval runs pass none.
-5. In [runner.py](../src/agenteval/runner.py), extend `build_environment`, `doctor`,
-   `cleanup_environments` and `_env_image`.
+4. Subclass `Provider` from [environments/base.py](../src/agenteval/environments/base.py) in
+   the provider's folder (`environments/myvm/provider.py`; see `tart/provider.py` and
+   `sbx/provider.py`) and add an instance to `PROVIDERS` in
+   [environments/\_\_init\_\_.py](../src/agenteval/environments/__init__.py). Everything that
+   differs per provider goes through it:
+   - `spec`: the `SandboxEnvironmentSpec`. It also receives the cell's `inner_sandbox` type,
+     for providers whose confinement must depend on it (as Docker's does), `mounts`: host
+     folders that `agenteval dev --mount live` shares at the same path (a bind mount for
+     Docker, `tart run --dir` for Tart; eval runs pass none), and `filtered_network` (Claude
+     subscription dev sessions; raise if the provider cannot give one).
+   - `build`: `agenteval env build`. `cleanup`: `agenteval env cleanup` (say "not installed,
+     skipped" when the tool is missing).
+   - `image_label`: the image column of `agenteval profiles`. `identity`: the image fields
+     recorded in the eval log metadata.
+   - `tool_checks`, `env_checks` and optionally `host_checks`: what `agenteval doctor` checks.
+   Import Inspect, the provider's sandbox module and anything else heavy inside the methods,
+   so `profiles`, `doctor` and `run --dry-run` stay fast.
+5. Add tests next to `tests/test_tart_vm.py` / `tests/test_sbx.py`; `tests/test_cli.py` covers
+   the doctor and cleanup dispatch.
 6. The guest must provide what
    [provision.sh](../src/agenteval/environments/provision/provision.sh) sets up: Python 3, bash,
    coreutils, sudo, bubblewrap and socat (for `bwrap` harnesses, with `/usr/bin/bwrap` owned by
@@ -374,7 +386,7 @@ what every task shares: name, model, sandbox, limits, epochs and metadata.
 
    ```python
    def my_suite_task(cell: MatrixCell) -> Task:
-       options = MySuiteOptions.model_validate(cell.suite.options)  # pydantic, extra="forbid"
+       options = cell.suite.typed_options(MySuiteOptions)  # validated when the run loaded
        return Task(
            dataset=my_dataset(options),
            setup=[
@@ -395,7 +407,13 @@ what every task shares: name, model, sandbox, limits, epochs and metadata.
    `time_limit`, because Inspect gives all scorers together half of it.
 2. Register it in `SUITES` in [suites/\_\_init\_\_.py](../src/agenteval/suites/__init__.py), and
    add the name to `SuiteName` in [config.py](../src/agenteval/config.py). The CLI's `--suite`
-   choices come from `SuiteName`.
+   choices come from `SuiteName`. Its options model (`MySuiteOptions(_Strict)`, an empty one
+   for a suite without options) goes in `config.py` too, registered in `SUITE_OPTIONS`:
+   `load_run` then rejects an unknown or invalid option with the suite and key in the
+   message. Regenerate the JSON schemas (`uv run python scripts/gen_config_schema.py`) and
+   list the options in `config/runs/_template.yaml`. If it reads its own kind of case,
+   add a loader to [cases.py](../src/agenteval/cases.py) that resolves
+   `constants.cases_dir()` when called.
 3. Report. [report/scores.py](../src/agenteval/report/scores.py) recognises suites by scorer name
    (`containment_scorer`, `tests_pass`, `ipi_scorer`, `boundary_monitor`, `generated_vulns`). A new suite still
    appears in the Overview, Economics, Boundary monitor (when attached) and the per-sample
@@ -418,7 +436,7 @@ the suite options `ids` and `limit`.
 | --- | --- | --- |
 | `description` | `""` | |
 | `models`, `harnesses`, `environments` | required | Profile names; the run is their cross product. |
-| `suites` | required | Suite names, or `{name, options}` mappings. |
+| `suites` | required | Suite names, or `{name, options}` mappings. Options are checked per suite when the file loads: `containment` takes none; `capability` takes `limit`, `ids`; `injection` takes `limit`, `ids`, `vectors`, `severities`, `defense_prompt`, `agent_user`, `codeipi`, `local` (see [architecture.md](architecture.md#suites)). |
 | `epochs` | `1` | Repetitions of every sample. |
 | `limits` | `time_limit: 900` | Per sample: `time_limit` and `working_limit` (seconds), `token_limit`, `message_limit`, `cost_limit` (USD). |
 | `max_samples` | the environments' `max_concurrent` | Concurrent samples per task. |

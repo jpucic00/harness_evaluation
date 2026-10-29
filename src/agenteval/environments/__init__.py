@@ -1,19 +1,56 @@
-"""Environments: where every sample runs (a fresh Tart VM, Docker container or sbx microVM)."""
+"""Environments: where every sample runs (a fresh Tart VM, Docker container or sbx microVM).
+
+Each provider implements ``base.Provider``; ``PROVIDERS`` maps profile ``provider``
+names to them and everything else dispatches through it.
+"""
 
 from __future__ import annotations
 
+import hashlib
 from collections.abc import Sequence
-from pathlib import Path
-from typing import Literal
-
-from inspect_ai.util import SandboxEnvironmentSpec
+from typing import TYPE_CHECKING, Literal
 
 from agenteval.config import EnvironmentProfile
+from agenteval.environments.base import (
+    PROVISION_DIR,
+    PROVISION_SCRIPT,
+    CommandRunner,
+    Echo,
+    Provider,
+    run_command,
+)
+from agenteval.environments.docker import DockerProvider
+from agenteval.environments.sbx.provider import SbxProvider
+from agenteval.environments.tart.provider import TartProvider
 
-PROVISION_DIR = Path(__file__).parent / "provision"
-"""Docker build context: ``Dockerfile`` + ``provision.sh``."""
-PROVISION_SCRIPT = PROVISION_DIR / "provision.sh"
-"""Idempotent Ubuntu 24.04 provisioning shared by the Tart image and the Docker image."""
+if TYPE_CHECKING:
+    from inspect_ai.util import SandboxEnvironmentSpec
+
+__all__ = [
+    "PROVIDERS",
+    "PROVISION_DIR",
+    "PROVISION_SCRIPT",
+    "build_environment",
+    "cleanup_environments",
+    "environment_identity",
+    "get_provider",
+    "provision_sha256",
+    "sandbox_spec",
+]
+
+PROVIDERS: dict[str, Provider] = {
+    p.name: p for p in (DockerProvider(), TartProvider(), SbxProvider())
+}
+"""Providers by profile ``provider`` name, in ``agenteval doctor`` order."""
+
+
+def get_provider(env: EnvironmentProfile) -> Provider:
+    try:
+        return PROVIDERS[env.provider]
+    except KeyError:
+        raise ValueError(
+            f"environment '{env.name}': unsupported provider '{env.provider}'"
+        ) from None
 
 
 def sandbox_spec(
@@ -38,35 +75,46 @@ def sandbox_spec(
     agent user's egress denied by ``egress.sh`` instead (see ``docker.compose_config``).
     Tart VMs always work that way.
     """
-    if env.provider == "tart":
-        from .tart.sandbox import TartSandboxConfig
+    return get_provider(env).spec(
+        env, inner_sandbox=inner_sandbox, mounts=mounts, filtered_network=filtered_network
+    )
 
-        if env.tart is None:  # filled in by EnvironmentProfile's validator
-            raise ValueError(f"environment '{env.name}' has no tart settings")
-        fields = env.tart.model_dump() | {"default_cwd": env.workspace}
-        if mounts:  # only dev live sessions; eval specs stay as they were
-            fields["shared_dirs"] = tuple(mounts)
-        config = TartSandboxConfig(**fields)
-        return SandboxEnvironmentSpec("tart", config)
-    if env.provider == "sbx":
-        from .sbx.sandbox import SbxSandboxConfig
 
-        if env.sbx is None:  # filled in by EnvironmentProfile's validator
-            raise ValueError(f"environment '{env.name}' has no sbx settings")
-        if filtered_network:
-            raise ValueError(
-                f"environment '{env.name}': sbx environments do not support Claude subscription "
-                "sessions yet (they need the egress proxy's network); use docker or tart"
-            )
-        sbx_config = SbxSandboxConfig(
-            **env.sbx.model_dump(), default_cwd=env.workspace, shared_dirs=tuple(mounts)
-        )
-        return SandboxEnvironmentSpec("sbx", sbx_config)
-    if env.provider == "docker":
-        from .docker import write_compose_file
+def build_environment(env: EnvironmentProfile, *, force: bool = False) -> None:
+    get_provider(env).build(env, force=force)
 
-        path = write_compose_file(
-            env, inner_sandbox=inner_sandbox, mounts=mounts, filtered_network=filtered_network
-        )
-        return SandboxEnvironmentSpec("docker", path.as_posix())
-    raise ValueError(f"environment '{env.name}': unsupported provider '{env.provider}'")
+
+def cleanup_environments(*, echo: Echo = print, runner: CommandRunner = run_command) -> int:
+    """Delete leftover agenteval Tart VMs, sbx sandboxes and Docker compose projects.
+
+    Returns an exit code.
+    """
+    code = 0
+    for provider in sorted(PROVIDERS.values(), key=lambda p: p.cleanup_last):
+        code = provider.cleanup(echo, runner) or code
+    return code
+
+
+def provision_sha256() -> str | None:
+    """sha256 of the provision.sh shipped with this agenteval (images record theirs too)."""
+    try:
+        return hashlib.sha256(PROVISION_SCRIPT.read_bytes()).hexdigest()
+    except OSError:
+        return None
+
+
+def environment_identity(env: EnvironmentProfile) -> dict[str, str | None]:
+    """What results depend on beyond the profile: the built image and its provisioning.
+
+    Base images are pinned by (mutable) tag, so the Docker image ID is what ties results
+    to the exact image. A built image's own provision.sh hash is in
+    /etc/agenteval/image.json inside it.
+    """
+    identity: dict[str, str | None] = {
+        "provider": env.provider,
+        "provision_sha256": provision_sha256(),
+    }
+    provider = PROVIDERS.get(env.provider)
+    if provider is not None:
+        identity.update(provider.identity(env))
+    return identity

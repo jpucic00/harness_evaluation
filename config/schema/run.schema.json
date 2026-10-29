@@ -69,27 +69,224 @@
       "type": "object"
     },
     "SuiteSelection": {
-      "additionalProperties": false,
-      "properties": {
-        "name": {
-          "enum": [
-            "containment",
-            "capability",
-            "injection"
+      "title": "SuiteSelection",
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "properties": {
+            "name": {
+              "const": "containment",
+              "title": "Name",
+              "type": "string"
+            },
+            "options": {
+              "$ref": "#/$defs/ContainmentOptions"
+            }
+          },
+          "required": [
+            "name"
           ],
-          "title": "Name",
-          "type": "string"
+          "type": "object"
         },
-        "options": {
-          "additionalProperties": true,
-          "title": "Options",
+        {
+          "additionalProperties": false,
+          "properties": {
+            "name": {
+              "const": "capability",
+              "title": "Name",
+              "type": "string"
+            },
+            "options": {
+              "$ref": "#/$defs/CapabilityOptions"
+            }
+          },
+          "required": [
+            "name"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "name": {
+              "const": "injection",
+              "title": "Name",
+              "type": "string"
+            },
+            "options": {
+              "$ref": "#/$defs/InjectionOptions"
+            }
+          },
+          "required": [
+            "name"
+          ],
           "type": "object"
         }
+      ]
+    },
+    "ContainmentOptions": {
+      "additionalProperties": false,
+      "description": "The containment suite takes no options.",
+      "properties": {},
+      "title": "ContainmentOptions",
+      "type": "object"
+    },
+    "CapabilityOptions": {
+      "additionalProperties": false,
+      "properties": {
+        "limit": {
+          "anyOf": [
+            {
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "At most this many tasks (easiest first).",
+          "title": "Limit"
+        },
+        "ids": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            },
+            {
+              "type": "string"
+            }
+          ],
+          "default": null,
+          "description": "Only these task ids (folder names in ``cases/capability/``).",
+          "title": "Ids"
+        }
       },
-      "required": [
-        "name"
-      ],
-      "title": "SuiteSelection",
+      "title": "CapabilityOptions",
+      "type": "object"
+    },
+    "InjectionOptions": {
+      "additionalProperties": false,
+      "properties": {
+        "limit": {
+          "anyOf": [
+            {
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Limit"
+        },
+        "vectors": {
+          "anyOf": [
+            {
+              "items": {
+                "enum": [
+                  "issue_text",
+                  "code_comment",
+                  "readme",
+                  "config_file"
+                ],
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            },
+            {
+              "type": "string"
+            }
+          ],
+          "default": null,
+          "description": "Injection vectors to include (benign samples are always included).",
+          "title": "Vectors"
+        },
+        "severities": {
+          "anyOf": [
+            {
+              "items": {
+                "enum": [
+                  "S1",
+                  "S2",
+                  "S3"
+                ],
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            },
+            {
+              "type": "string"
+            }
+          ],
+          "default": null,
+          "title": "Severities"
+        },
+        "defense_prompt": {
+          "default": true,
+          "description": "Use CodeIPI's system prompt that warns about instructions found in files.",
+          "title": "Defense Prompt",
+          "type": "boolean"
+        },
+        "agent_user": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "User the harness runs as (default: the environment's ``agent_user``).",
+          "title": "Agent User"
+        },
+        "codeipi": {
+          "default": true,
+          "description": "Include CodeIPI's 45 published samples.",
+          "title": "Codeipi",
+          "type": "boolean"
+        },
+        "local": {
+          "default": true,
+          "description": "Include the local cases in ``cases/injection/``.",
+          "title": "Local",
+          "type": "boolean"
+        },
+        "ids": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            },
+            {
+              "type": "string"
+            }
+          ],
+          "default": null,
+          "description": "Only these sample ids (CodeIPI or local).",
+          "title": "Ids"
+        }
+      },
+      "title": "InjectionOptions",
       "type": "object"
     }
   },

@@ -33,7 +33,7 @@ metadata but are not violations. Files the harness itself writes after the
 baseline (OpenCode's state/cache dirs, the opencode.json inspect_swe writes at
 agent start, Inspect's sandbox tools) are ignored by default; see
 ``DEFAULT_IGNORE``. Everything installed before the agent runs is covered by
-``common.snapshot_baseline()``, which suites insert right before the agent.
+``setup.snapshot_baseline()``, which suites insert right before the agent.
 """
 
 from __future__ import annotations
@@ -49,7 +49,7 @@ from inspect_ai.util import SandboxEnvironment, sandbox
 
 from agenteval import constants
 from agenteval.sandbox_scripts.monitor import scan_canaries_text
-from agenteval.suites.common import (
+from agenteval.suites.setup import (
     BASELINE,
     PYTHON,
     STORE_SAMPLE,

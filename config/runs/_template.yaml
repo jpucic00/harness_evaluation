@@ -12,6 +12,13 @@ harnesses: [opencode-none, opencode-bwrap]
 environments: [docker-ubuntu]
 
 # containment, capability, injection: bare names or {name, options}. Required.
+# Unknown options are rejected. List options also take "a,b". Options per suite:
+#   containment  none
+#   capability   limit (max tasks, easiest first), ids (task folder names)
+#   injection    limit, ids (CodeIPI or local sample ids), vectors (issue_text,
+#                code_comment, readme, config_file), severities (S1, S2, S3),
+#                defense_prompt (default true), agent_user (default: the
+#                environment's), codeipi (default true), local (default true)
 suites:
   - containment
   - name: capability

@@ -11,14 +11,18 @@ import pytest
 from agenteval.config import (
     DEFAULT_AGENT_MODELS,
     SCHEMA_KINDS,
+    CapabilityOptions,
     ConfigError,
     DockerSettings,
     EnvironmentProfile,
     HarnessProfile,
+    InjectionOptions,
     InnerSandbox,
     ModelProfile,
+    RunConfig,
     SbxSettings,
     Subagents,
+    SuiteSelection,
     TartSettings,
     _read_yaml,
     config_schema,
@@ -26,7 +30,8 @@ from agenteval.config import (
     load_run,
     size_mb,
 )
-from agenteval.runner import _run_files, resolve_run_file
+from agenteval.profiles import run_files
+from agenteval.run.plan import resolve_run_file
 
 REPO = Path(__file__).resolve().parents[1]
 CONFIG = REPO / "config"
@@ -65,7 +70,7 @@ def test_schema_does_not_require_name() -> None:
 def test_shipped_profiles_and_runs_load() -> None:
     profiles = load_profiles(CONFIG)
     assert profiles.models and profiles.harnesses and profiles.environments
-    for path in _run_files(CONFIG):
+    for path in run_files(CONFIG):
         load_run(path)
 
 
@@ -82,7 +87,7 @@ def test_underscore_files_are_skipped(tmp_path: Path) -> None:
     profiles = load_profiles(tmp_path)
     assert list(profiles.models) == ["m"]
     assert not profiles.harnesses and not profiles.environments
-    assert _run_files(tmp_path) == [tmp_path / "runs" / "r.yaml"]
+    assert run_files(tmp_path) == [tmp_path / "runs" / "r.yaml"]
     assert resolve_run_file("r", tmp_path) == tmp_path / "runs" / "r.yaml"
     with pytest.raises(ConfigError, match="run file not found"):
         resolve_run_file("_template", tmp_path)
@@ -316,3 +321,81 @@ def test_memory_sizes() -> None:
         TartSettings.model_validate({"memory": None})
     with pytest.raises(ValueError):
         DockerSettings.model_validate({"cpus": 0})
+
+
+# --------------------------------------------------------------------------- suite options
+
+
+def _run(suites: list[object]) -> RunConfig:
+    return RunConfig.model_validate(
+        {"name": "r", "models": ["m"], "harnesses": ["h"], "environments": ["e"], "suites": suites}
+    )
+
+
+def test_suites_as_bare_names_and_mappings() -> None:
+    run = _run(
+        [
+            "containment",
+            {"name": "capability", "options": {"limit": 2, "ids": "cap-01-pagination,cap-02-x"}},
+            {"name": "injection", "options": {"vectors": ["readme"], "agent_user": "root"}},
+        ]
+    )
+    containment, capability, injection = run.suites
+    assert containment == SuiteSelection(name="containment")
+    assert capability.options == {"limit": 2, "ids": "cap-01-pagination,cap-02-x"}
+    typed = capability.typed_options(CapabilityOptions)
+    assert typed.limit == 2 and typed.ids == ["cap-01-pagination", "cap-02-x"]
+    assert injection.typed_options(InjectionOptions).agent_user == "root"
+    with pytest.raises(TypeError):
+        capability.typed_options(InjectionOptions)
+
+
+@pytest.mark.parametrize(
+    ("suite", "options", "message"),
+    [
+        (
+            "capability",
+            {"limt": 2},
+            "suite 'capability': unknown option 'limt' (allowed: ids, limit)",
+        ),
+        ("capability", {"limit": 0}, "suite 'capability': option 'limit'"),
+        ("injection", {"limits": 1}, "suite 'injection': unknown option 'limits'"),
+        ("injection", {"vectors": ["email"]}, "suite 'injection': option 'vectors.0'"),
+        ("injection", {"severities": "S9"}, "suite 'injection': option 'severities.0'"),
+        ("injection", {"agent_user": "root; id"}, "invalid user name"),
+        ("containment", {"limit": 1}, "suite 'containment': unknown option 'limit' (it takes no"),
+    ],
+)
+def test_bad_suite_options_are_rejected(
+    suite: str, options: dict[str, object], message: str
+) -> None:
+    with pytest.raises(ValueError) as info:
+        _run([{"name": suite, "options": options}])
+    assert message in str(info.value)
+
+
+def test_load_run_names_the_file_and_the_option(tmp_path: Path) -> None:
+    path = tmp_path / "r.yaml"
+    path.write_text(
+        "models: [m]\nharnesses: [h]\nenvironments: [e]\n"
+        "suites: [containment, {name: capability, options: {idz: [a]}}]\n"
+    )
+    with pytest.raises(ConfigError, match=r"(?s)r\.yaml.*suite 'capability': unknown option 'idz'"):
+        load_run(path)
+
+
+def test_schema_lists_each_suites_options() -> None:
+    schema = config_schema("run")
+    branches = schema["$defs"]["SuiteSelection"]["oneOf"]
+    by_name = {
+        b["properties"]["name"]["const"]: b["properties"]["options"]["$ref"] for b in branches
+    }
+    assert by_name == {
+        "containment": "#/$defs/ContainmentOptions",
+        "capability": "#/$defs/CapabilityOptions",
+        "injection": "#/$defs/InjectionOptions",
+    }
+    assert schema["$defs"]["ContainmentOptions"]["properties"] == {}
+    assert set(schema["$defs"]["CapabilityOptions"]["properties"]) == {"limit", "ids"}
+    ids = schema["$defs"]["CapabilityOptions"]["properties"]["ids"]["anyOf"]
+    assert {"type": "string"} in ids  # "a,b" is accepted too

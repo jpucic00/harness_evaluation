@@ -1,6 +1,7 @@
 """Capability suite: small, benign Python bug-fix tasks of graded difficulty.
 
-Each task lives in ``cases/capability/<task-id>/`` (see ``cases/capability/README.md``):
+Each task lives in ``cases/capability/<task-id>/`` (see ``cases/capability/README.md``;
+loaded by ``agenteval.cases.load_capability_tasks``):
 
 - ``task.yaml``        id, difficulty (easy|medium|hard), summary, prompt and an
                        optional prompt_suffix
@@ -32,12 +33,8 @@ cannot change the verdict either; such edits are reported as test tampering.
 
 from __future__ import annotations
 
-import re
 from importlib import resources
-from pathlib import Path
-from typing import Annotated, Literal
 
-import yaml
 from inspect_ai import Task
 from inspect_ai.dataset import MemoryDataset, Sample
 from inspect_ai.scorer import (
@@ -52,130 +49,31 @@ from inspect_ai.scorer import (
 )
 from inspect_ai.solver import Generate, Solver, TaskState, solver
 from inspect_ai.util import ExecResult, OutputLimitExceededError, SandboxEnvironment, sandbox
-from pydantic import BaseModel, BeforeValidator, ConfigDict, Field
 
-from agenteval import constants
-from agenteval.config import MatrixCell
-from agenteval.constants import OPT_DIR
+from agenteval.cases import (
+    SETUP_SCRIPT,
+    CapabilityTask,
+    get_capability_task,
+    load_capability_tasks,
+)
+from agenteval.config import CapabilityOptions, MatrixCell
+from agenteval.constants import OPT_DIR, check_user
 from agenteval.harnesses import harness_solvers
 
-from .common import prepare_sample, snapshot_baseline
 from .monitors import boundary_monitor, monitor_timeout
-from .reference_cases import (
-    CaseSet,
-    ProtocolError,
-    describe,
-    find_cases_file,
-    load_case_set,
-    matches,
-    parse_results,
-)
+from .reference_cases import ProtocolError, describe, matches, parse_results
+from .setup import prepare_sample, snapshot_baseline
 
-TASKS_DIR = constants.cases_dir() / "capability"
 DEFAULT_SCRATCH_DIR = f"{OPT_DIR}/capability-tests"
 """Root-owned and world-readable, so the unprivileged runner can read but not edit it."""
 DEFAULT_TESTS_TIMEOUT = 180
 RUNNER_SCRIPT = "case_runner.py"
-SETUP_SCRIPT = "setup.sh"
 META_TASK_ID = "capability_task"
-PROMPT_SUFFIX = (
-    "The project is in the current working directory. "
-    "You can run its tests with `python3 -m pytest -q`."
-)
-
-Difficulty = Literal["easy", "medium", "hard"]
-_DIFFICULTY_RANK: dict[str, int] = {"easy": 0, "medium": 1, "hard": 2}
-_SKIP_PARTS = {"__pycache__", ".pytest_cache", ".DS_Store"}
-_USER_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_.-]{0,31}$")
 _OUTPUT_TAIL = 4000
 _MAX_FAILURES = 20
 
 
-def split_csv(value: object) -> object:
-    """Accept ``"a,b"`` as well as ``["a", "b"]`` for list options."""
-    if isinstance(value, str):
-        return [part.strip() for part in value.split(",") if part.strip()]
-    return value
-
-
-CsvList = BeforeValidator(split_csv)
-
-
-def check_user(user: str) -> str:
-    if not _USER_RE.match(user):
-        raise ValueError(f"invalid user name: {user!r}")
-    return user
-
-
 # --------------------------------------------------------------------------- tasks
-
-
-class CapabilityTask(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True)
-
-    id: str
-    difficulty: Difficulty
-    summary: str
-    prompt: str
-    prompt_suffix: str = PROMPT_SUFFIX
-    """Appended to the prompt; tasks that are not about running tests replace it."""
-    directory: Path
-
-    @property
-    def full_prompt(self) -> str:
-        suffix = self.prompt_suffix.strip()
-        return f"{self.prompt.strip()}\n\n{suffix}" if suffix else self.prompt.strip()
-
-    @property
-    def setup_script(self) -> Path | None:
-        path = self.directory / SETUP_SCRIPT
-        return path if path.is_file() else None
-
-    def repo_files(self) -> dict[str, bytes]:
-        return _read_tree(self.directory / "repo")
-
-    def test_files(self) -> dict[str, bytes]:
-        """Visible tests shipped in the repo (checked for tampering)."""
-        return {k: v for k, v in self.repo_files().items() if k.startswith("tests/")}
-
-    def case_set(self) -> CaseSet:
-        """Reference cases and expected values (host-side only)."""
-        return load_case_set(find_cases_file(self.directory))
-
-
-def _read_tree(root: Path) -> dict[str, bytes]:
-    files: dict[str, bytes] = {}
-    if not root.is_dir():
-        return files
-    for path in sorted(root.rglob("*")):
-        rel = path.relative_to(root)
-        if not path.is_file() or path.suffix == ".pyc" or _SKIP_PARTS & set(rel.parts):
-            continue
-        files[rel.as_posix()] = path.read_bytes()
-    return files
-
-
-def load_capability_tasks(root: Path = TASKS_DIR) -> list[CapabilityTask]:
-    """All tasks under ``root``, easiest first."""
-    tasks: list[CapabilityTask] = []
-    for task_yaml in sorted(root.glob("*/task.yaml")):
-        if task_yaml.parent.name.startswith("_"):  # _template
-            continue
-        data = yaml.safe_load(task_yaml.read_text()) or {}
-        if not isinstance(data, dict):
-            raise ValueError(f"{task_yaml}: expected a mapping")
-        task = CapabilityTask.model_validate({**data, "directory": task_yaml.parent})
-        if task.id != task_yaml.parent.name:
-            raise ValueError(f"{task_yaml}: id '{task.id}' does not match its directory")
-        tasks.append(task)
-    return sorted(tasks, key=lambda t: (_DIFFICULTY_RANK[t.difficulty], t.id))
-
-
-def get_capability_task(task_id: str, root: Path = TASKS_DIR) -> CapabilityTask:
-    for task in load_capability_tasks(root):
-        if task.id == task_id:
-            return task
-    raise KeyError(f"unknown capability task '{task_id}'")
 
 
 def select_tasks(
@@ -470,16 +368,9 @@ def tests_pass(
 # --------------------------------------------------------------------------- task
 
 
-class CapabilityOptions(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True)
-
-    limit: int | None = Field(default=None, ge=1)
-    ids: Annotated[list[str] | None, CsvList] = None
-
-
 def capability_task(cell: MatrixCell) -> Task:
     """Suite factory; model, sandbox, limits and metadata are applied by ``build_task``."""
-    options = CapabilityOptions.model_validate(cell.suite.options)
+    options = cell.suite.typed_options(CapabilityOptions)
     env = cell.environment
     tasks = select_tasks(load_capability_tasks(), ids=options.ids, limit=options.limit)
     return Task(

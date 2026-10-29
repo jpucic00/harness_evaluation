@@ -1,4 +1,10 @@
-"""``agenteval`` command line. Thin wrapper over :mod:`agenteval.runner`."""
+"""``agenteval`` command line.
+
+Thin wrapper over :mod:`agenteval.run`, :mod:`agenteval.doctor`, :mod:`agenteval.profiles`,
+:mod:`agenteval.environments` and :mod:`agenteval.report.serve`: it parses arguments,
+prints and maps errors to exit codes. The report modules are imported in the commands
+that need them, so the other commands start fast.
+"""
 
 from __future__ import annotations
 
@@ -9,8 +15,12 @@ from pathlib import Path
 
 import click
 
-from agenteval import runner
+from agenteval import doctor as host_doctor
+from agenteval import environments
+from agenteval import profiles as profile_list
 from agenteval.config import DEFAULT_CONFIG_DIR, ConfigError
+from agenteval.run import execute as run_execute
+from agenteval.run import plan as run_plan
 
 
 @contextmanager
@@ -58,8 +68,8 @@ def doctor(config_dir: Path, env_name: str | None) -> None:
 
     Required env vars may come from the shell or a .env file, as with Inspect.
     """
-    checks = runner.doctor(config_dir, env_name)
-    click.echo(runner.format_checks(checks))
+    checks = host_doctor.doctor(config_dir, env_name)
+    click.echo(host_doctor.format_checks(checks))
     if any(c.status == "fail" for c in checks):
         raise SystemExit(1)
 
@@ -69,7 +79,7 @@ def doctor(config_dir: Path, env_name: str | None) -> None:
 def profiles(config_dir: Path) -> None:
     """List model, harness, environment and run profiles."""
     with _config_errors():
-        click.echo(runner.describe_profiles(config_dir))
+        click.echo(profile_list.describe_profiles(config_dir))
 
 
 # --------------------------------------------------------------------------- env
@@ -91,10 +101,10 @@ def env() -> None:
 def env_build(config_dir: Path, name: str, force: bool) -> None:
     """Build the image for environment NAME (Docker image or Tart VM)."""
     with _config_errors():
-        profile = runner.get_environment(config_dir, name)
+        profile = profile_list.get_environment(config_dir, name)
         click.echo(f"building {profile.provider} image for environment '{name}'")
         try:
-            runner.build_environment(profile, force=force)
+            environments.build_environment(profile, force=force)
         except (ConfigError, KeyboardInterrupt):
             raise
         except Exception as ex:
@@ -105,7 +115,7 @@ def env_build(config_dir: Path, name: str, force: bool) -> None:
 @env.command("cleanup")
 def env_cleanup() -> None:
     """Delete leftover agenteval Tart VMs and Docker compose projects."""
-    raise SystemExit(runner.cleanup_environments(echo=click.echo))
+    raise SystemExit(environments.cleanup_environments(echo=click.echo))
 
 
 # --------------------------------------------------------------------------- run
@@ -124,7 +134,7 @@ def env_cleanup() -> None:
     "--suite",
     "suites",
     multiple=True,
-    type=click.Choice(runner.SUITE_NAMES),
+    type=click.Choice(run_plan.SUITE_NAMES),
     help="Replace the run's suites (options from the run file are kept).",
 )
 @click.option("--limit", type=click.IntRange(min=1), help="Max samples per task.")
@@ -146,7 +156,7 @@ def run(
 ) -> None:
     """Run RUN_FILE (a path, or a run name under <config-dir>/runs)."""
     with _config_errors():
-        plan = runner.plan_run(
+        plan = run_plan.plan_run(
             run_file,
             config_dir=config_dir,
             models=models,
@@ -156,8 +166,8 @@ def run(
             limit=limit,
             run_id=run_id,
         )
-        click.echo(runner.format_plan(plan))
-        runner.load_dotenv_file()  # Inspect reads .env too; check what it will see
+        click.echo(run_plan.format_plan(plan))
+        run_plan.load_dotenv_file()  # Inspect reads .env too; check what it will see
         missing = plan.missing_env()
         if dry_run:
             if missing:
@@ -167,7 +177,7 @@ def run(
             click.echo("\ndry run: nothing executed")
             return
         click.echo()
-        code = runner.execute_run(plan, report=not no_report, echo=click.echo)
+        code = run_execute.execute_run(plan, report=not no_report, echo=click.echo)
     raise SystemExit(code)
 
 
@@ -182,7 +192,7 @@ def report() -> None:
 _report_dir_option = click.option(
     "--report-dir",
     type=click.Path(file_okay=False, path_type=Path),
-    default=runner.DEFAULT_REPORT_DIR,
+    default=run_plan.DEFAULT_REPORT_DIR,
     show_default=True,
     help="Root directory holding one report per run.",
 )
@@ -200,18 +210,20 @@ _report_dir_option = click.option(
 def report_build(log_dir: Path, out: Path | None, title: str | None, report_dir: Path) -> None:
     """Build a report from the eval logs in LOG_DIR."""
     with _config_errors():
-        path = runner.report_from_logs(log_dir, out=out, report_root=report_dir, title=title)
+        path = run_execute.report_from_logs(log_dir, out=out, report_root=report_dir, title=title)
     click.echo(f"report: {path}")
 
 
 @report.command("open")
-@click.argument("run_id", default=runner.LATEST)
+@click.argument("run_id", default=run_plan.LATEST)
 @_report_dir_option
 def report_open(run_id: str, report_dir: Path) -> None:
     """Open the report of RUN_ID ('latest' by default, 'index' for the run list)."""
+    from agenteval.report import serve
+
     with _config_errors():
-        page = runner.report_page(report_dir, run_id)
-    if not runner.open_path(page):
+        page = serve.report_page(report_dir, run_id)
+    if not serve.open_path(page):
         click.echo(page)
 
 
@@ -220,8 +232,10 @@ def report_open(run_id: str, report_dir: Path) -> None:
 @_report_dir_option
 def report_serve(port: int, report_dir: Path) -> None:
     """Serve the report directory on http://127.0.0.1:PORT (local only)."""
+    from agenteval.report import serve
+
     with _config_errors():
-        server = runner.make_report_server(report_dir, port)
+        server = serve.make_report_server(report_dir, port)
     click.echo(
         f"serving {report_dir} at http://127.0.0.1:{server.server_address[1]}/ (Ctrl-C stops)"
     )
@@ -408,18 +422,20 @@ def dev_list() -> None:
 
 
 @main.command()
-@click.argument("run_id", default=runner.LATEST)
+@click.argument("run_id", default=run_plan.LATEST)
 @click.option(
     "--log-dir",
     type=click.Path(file_okay=False, path_type=Path),
-    default=runner.DEFAULT_LOG_DIR,
+    default=run_plan.DEFAULT_LOG_DIR,
     show_default=True,
     help="Root directory holding one log directory per run.",
 )
 def view(run_id: str, log_dir: Path) -> None:
     """Open Inspect's log viewer for RUN_ID ('latest' by default)."""
+    from agenteval.report import serve
+
     with _config_errors():
-        cmd = runner.view_command(log_dir, run_id)
+        cmd = serve.view_command(log_dir, run_id)
     click.echo(f"inspect view --log-dir {cmd[-1]}")
     raise SystemExit(subprocess.run(cmd, check=False).returncode)
 

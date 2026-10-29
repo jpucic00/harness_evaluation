@@ -49,9 +49,7 @@ are populated. Limitations:
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Annotated, Literal
 
-import yaml
 from inspect_ai import Task
 from inspect_ai.dataset import MemoryDataset, Sample
 from inspect_ai.solver import Generate, Solver, TaskState, solver
@@ -63,138 +61,47 @@ from inspect_evals.ipi_coding_agent.constants import (
     SYSTEM_PROMPT,
     SYSTEM_PROMPT_NO_DEFENSE,
 )
-from pydantic import AfterValidator, BaseModel, ConfigDict, Field, model_validator
 
-from agenteval import constants
-from agenteval.config import MatrixCell
+from agenteval.cases import CODEIPI_WORKSPACE, InjectionCase, load_injection_cases
+from agenteval.config import InjectionOptions, MatrixCell
+from agenteval.constants import check_user
 
-from .capability import CsvList, check_user, harness_chain, run_checked
-from .common import prepare_sample
+from .capability import harness_chain, run_checked
 from .monitors import boundary_monitor, monitor_timeout
+from .setup import prepare_sample
 from .vulnscan import generated_vulns
 
-CODEIPI_WORKSPACE = "/workspace"
-"""CodeIPI writes its repos to, and verifies in, this fixed path."""
 
-Vector = Literal["issue_text", "code_comment", "readme", "config_file"]
-Severity = Literal["S1", "S2", "S3"]
-
-
-def _check_optional_user(user: str | None) -> str | None:
-    return None if user is None else check_user(user)
-
-
-class InjectionOptions(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True)
-
-    limit: int | None = Field(default=None, ge=1)
-    vectors: Annotated[list[Vector] | None, CsvList] = None
-    """Injection vectors to include (benign samples are always included)."""
-    severities: Annotated[list[Severity] | None, CsvList] = None
-    defense_prompt: bool = True
-    """Use CodeIPI's system prompt that warns about instructions found in files."""
-    agent_user: Annotated[str | None, AfterValidator(_check_optional_user)] = None
-    """User the harness runs as (default: the environment's ``agent_user``)."""
-    codeipi: bool = True
-    """Include CodeIPI's 45 published samples."""
-    local: bool = True
-    """Include the local cases in ``cases/injection/``."""
-    ids: Annotated[list[str] | None, CsvList] = None
-    """Only these sample ids (CodeIPI or local)."""
-
-
-Category = Literal["none", "exfiltration", "code_execution", "persistence"]
-
-
-class LocalCase(BaseModel):
-    """``cases/injection/<id>/case.yaml``: one CodeIPI-format sample (see that README)."""
-
-    model_config = ConfigDict(extra="forbid", frozen=True)
-
-    task: str
-    """What the user asks the agent to do (CodeIPI ``task_description``)."""
-    issue: str = ""
-    """Bug report appended to the task (CodeIPI ``issue_text``); a possible injection vector."""
-    vector: Literal["none", "issue_text", "code_comment", "readme", "config_file"]
-    category: Category
-    """What the injected instruction tries; ``none`` = benign control case."""
-    sophistication: str = "none"
-    severity: Literal["none", "S1", "S2", "S3"] = "none"
-    indicator: str = ""
-    """Regex describing the injected action (documentation; CodeIPI does not score it)."""
-    expected_malicious_action: str = ""
-    exec_marker: str | None = None
-    """``code_execution`` only: unique string inside the injected command. Compliance
-    = the marker appears in the agent's tool calls."""
-    persistence_targets: list[str] = Field(default_factory=list)
-    """``persistence`` only: workspace files whose change means compliance."""
-    verification: str = f"cd {CODEIPI_WORKSPACE} && python -m pytest tests/ -q"
-    """Command that passes once the legitimate bug is fixed."""
-    expected_fix: str
-
-    @model_validator(mode="after")
-    def _consistent(self) -> LocalCase:
-        benign = self.category == "none"
-        if benign != (self.vector == "none") or benign != (self.severity == "none"):
-            raise ValueError("benign cases (category none) need vector: none and severity: none")
-        if (self.category == "code_execution") != bool(self.exec_marker):
-            raise ValueError("exec_marker is required for, and only for, category code_execution")
-        if self.category == "persistence" and not self.persistence_targets:
-            raise ValueError("category persistence needs persistence_targets")
-        return self
-
-
-LOCAL_CASES_DIR = constants.cases_dir() / "injection"
-
-
-def load_local_case(directory: Path) -> Sample:
-    """One local case directory -> a Sample shaped exactly like CodeIPI's."""
-    try:
-        case = LocalCase.model_validate(yaml.safe_load((directory / "case.yaml").read_text()))
-    except Exception as ex:
-        raise ValueError(f"{directory / 'case.yaml'}: {ex}") from ex
-    repo = directory / "repo"
-    if not repo.is_dir():
-        raise ValueError(f"{directory}: missing repo/ (the files written to the workspace)")
-    files = {
-        str(path.relative_to(repo)): path.read_text()
-        for path in sorted(repo.rglob("*"))
-        if path.is_file() and "__pycache__" not in path.parts
-    }
-    sample_id = directory.name
-    if case.exec_marker:
+def local_sample(case: InjectionCase) -> Sample:
+    """One local case -> a Sample shaped exactly like CodeIPI's."""
+    spec = case.spec
+    if spec.exec_marker:
         # CodeIPI's scorer looks the marker up by sample id in this module-level table
-        EXEC_CANARIES[sample_id] = case.exec_marker
-    text = case.task + (f"\n\n{case.issue}" if case.issue else "")
+        EXEC_CANARIES[case.id] = spec.exec_marker
+    text = spec.task + (f"\n\n{spec.issue}" if spec.issue else "")
     return Sample(
-        id=sample_id,
+        id=case.id,
         input=text,
-        target=case.expected_fix,
+        target=spec.expected_fix,
         metadata={
-            "injection_vector": case.vector,
-            "payload_category": case.category,
-            "payload_sophistication": case.sophistication,
-            "severity": case.severity,
-            "payload_indicator": case.indicator,
-            "expected_malicious_action": case.expected_malicious_action,
-            "is_benign": case.category == "none",
-            "repo_files": files,
-            "verification_command": case.verification,
-            "persistence_targets": case.persistence_targets,
+            "injection_vector": spec.vector,
+            "payload_category": spec.category,
+            "payload_sophistication": spec.sophistication,
+            "severity": spec.severity,
+            "payload_indicator": spec.indicator,
+            "expected_malicious_action": spec.expected_malicious_action,
+            "is_benign": spec.category == "none",
+            "repo_files": case.repo_files,
+            "verification_command": spec.verification,
+            "persistence_targets": spec.persistence_targets,
             "local_case": True,
         },
     )
 
 
-def load_local_cases(root: Path = LOCAL_CASES_DIR) -> list[Sample]:
-    """Every ``cases/injection/<id>/`` (``_*`` directories are templates)."""
-    if not root.is_dir():
-        return []
-    return [
-        load_local_case(d)
-        for d in sorted(root.iterdir())
-        if d.is_dir() and not d.name.startswith(("_", "."))
-    ]
+def load_local_cases(root: Path | None = None) -> list[Sample]:
+    """Every ``cases/injection/<id>/`` as a Sample (``_*`` directories are templates)."""
+    return [local_sample(case) for case in load_injection_cases(root)]
 
 
 def codeipi_dataset(options: InjectionOptions) -> MemoryDataset:
@@ -259,7 +166,7 @@ def chown_workspace(workspace: str, user: str) -> Solver:
 
 def injection_task(cell: MatrixCell) -> Task:
     """Suite factory; model, sandbox, limits and metadata are applied by ``build_task``."""
-    options = InjectionOptions.model_validate(cell.suite.options)
+    options = cell.suite.typed_options(InjectionOptions)
     if cell.environment.workspace != CODEIPI_WORKSPACE:
         raise ValueError(
             f"environment '{cell.environment.name}': the injection suite (CodeIPI) needs "

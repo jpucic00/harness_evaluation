@@ -18,7 +18,18 @@ from pathlib import Path
 from typing import Annotated, Any, ClassVar, Literal, get_args
 
 import yaml
-from pydantic import AfterValidator, BaseModel, ConfigDict, Field, model_validator
+from pydantic import (
+    AfterValidator,
+    BaseModel,
+    BeforeValidator,
+    ConfigDict,
+    Field,
+    PrivateAttr,
+    ValidationError,
+    model_validator,
+)
+
+from agenteval.constants import check_user
 
 DEFAULT_CONFIG_DIR = Path("config")
 
@@ -392,9 +403,97 @@ class EnvironmentProfile(_Named):
 SuiteName = Literal["containment", "capability", "injection"]
 
 
+def split_csv(value: object) -> object:
+    """Accept ``"a,b"`` as well as ``["a", "b"]`` for list options."""
+    if isinstance(value, str):
+        return [part.strip() for part in value.split(",") if part.strip()]
+    return value
+
+
+CsvList = BeforeValidator(split_csv)
+
+
+class ContainmentOptions(_Strict):
+    """The containment suite takes no options."""
+
+
+class CapabilityOptions(_Strict):
+    limit: int | None = Field(default=None, ge=1)
+    """At most this many tasks (easiest first)."""
+    ids: Annotated[list[str] | None, CsvList] = None
+    """Only these task ids (folder names in ``cases/capability/``)."""
+
+
+Vector = Literal["issue_text", "code_comment", "readme", "config_file"]
+Severity = Literal["S1", "S2", "S3"]
+
+
+def _check_optional_user(user: str | None) -> str | None:
+    return None if user is None else check_user(user)
+
+
+class InjectionOptions(_Strict):
+    limit: int | None = Field(default=None, ge=1)
+    vectors: Annotated[list[Vector] | None, CsvList] = None
+    """Injection vectors to include (benign samples are always included)."""
+    severities: Annotated[list[Severity] | None, CsvList] = None
+    defense_prompt: bool = True
+    """Use CodeIPI's system prompt that warns about instructions found in files."""
+    agent_user: Annotated[str | None, AfterValidator(_check_optional_user)] = None
+    """User the harness runs as (default: the environment's ``agent_user``)."""
+    codeipi: bool = True
+    """Include CodeIPI's 45 published samples."""
+    local: bool = True
+    """Include the local cases in ``cases/injection/``."""
+    ids: Annotated[list[str] | None, CsvList] = None
+    """Only these sample ids (CodeIPI or local)."""
+
+
+SuiteOptions = ContainmentOptions | CapabilityOptions | InjectionOptions
+SUITE_OPTIONS: dict[str, type[SuiteOptions]] = {
+    "containment": ContainmentOptions,
+    "capability": CapabilityOptions,
+    "injection": InjectionOptions,
+}
+"""Suite name -> the model its ``options`` are validated with."""
+
+
+def _options_error(suite: str, model: type[SuiteOptions], error: ValidationError) -> str:
+    allowed = sorted(model.model_fields)
+    problems = []
+    for e in error.errors():
+        key = ".".join(str(part) for part in e["loc"])
+        if e["type"] == "extra_forbidden":
+            hint = f"allowed: {', '.join(allowed)}" if allowed else "it takes no options"
+            problems.append(f"unknown option '{key}' ({hint})")
+        else:
+            problems.append(f"option '{key}': {e['msg']}")
+    return f"suite '{suite}': {'; '.join(problems)}"
+
+
 class SuiteSelection(_Strict):
     name: SuiteName
     options: dict[str, Any] = Field(default_factory=dict)
+    """Suite options as written in the run file, validated per suite (``SUITE_OPTIONS``).
+
+    Kept as the mapping the file gave, so plans, overrides and task metadata show what
+    was set; suites read the validated model through ``typed_options``."""
+    _typed: SuiteOptions = PrivateAttr()
+
+    @model_validator(mode="after")
+    def _check_options(self) -> SuiteSelection:
+        model = SUITE_OPTIONS[self.name]
+        try:
+            self._typed = model.model_validate(self.options)
+        except ValidationError as ex:
+            raise ValueError(_options_error(self.name, model, ex)) from None
+        return self
+
+    def typed_options[T: SuiteOptions](self, kind: type[T]) -> T:
+        """The validated options as the suite's model; ``kind`` must match the suite."""
+        if not isinstance(self._typed, kind):
+            raise TypeError(f"suite '{self.name}' has {type(self._typed).__name__}, not {kind}")
+        return self._typed
 
 
 class Limits(_Strict):
@@ -621,7 +720,32 @@ def config_schema(kind: str) -> dict[str, Any]:
         names = {"enum": list(get_args(SuiteName)), "type": "string"}
         items = schema["properties"]["suites"]["items"]
         schema["properties"]["suites"]["items"] = {"anyOf": [names, items]}
+        schema["$defs"]["SuiteSelection"] = _suite_selection_schema(schema["$defs"])
     return {"$schema": "https://json-schema.org/draft/2020-12/schema", **schema}
+
+
+def _suite_selection_schema(defs: dict[str, Any]) -> dict[str, Any]:
+    """``{name, options}`` with the options each suite accepts (one branch per suite)."""
+    branches = []
+    for suite, model in SUITE_OPTIONS.items():
+        options = model.model_json_schema(ref_template="#/$defs/{model}")
+        defs.update(options.pop("$defs", {}))
+        for prop in options["properties"].values():  # list options also take "a,b" (CsvList)
+            if any(branch.get("type") == "array" for branch in prop.get("anyOf", [])):
+                prop["anyOf"].append({"type": "string"})
+        defs[model.__name__] = options
+        branches.append(
+            {
+                "additionalProperties": False,
+                "properties": {
+                    "name": {"const": suite, "title": "Name", "type": "string"},
+                    "options": {"$ref": f"#/$defs/{model.__name__}"},
+                },
+                "required": ["name"],
+                "type": "object",
+            }
+        )
+    return {"title": "SuiteSelection", "oneOf": branches}
 
 
 def write_config_schemas(schema_dir: Path) -> list[Path]:
